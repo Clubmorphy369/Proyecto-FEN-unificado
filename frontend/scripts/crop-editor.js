@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (MEJORADO)
+// MÓDULO 2: RECORTE MANUAL (CON DESCARGA DE IMÁGENES)
 // ============================================
 (function() {
     'use strict';
@@ -29,16 +29,12 @@
     const cropClearAll = document.getElementById('cropClearAll');
     const cropGallery = document.getElementById('cropGallery');
 
-    // NUEVO BOTÓN
-    const processAllBtn = document.createElement('button');
-    processAllBtn.id = 'cropProcessAllBtn';
-    processAllBtn.className = 'btn btn-success';
-    processAllBtn.innerHTML = '<i class="fas fa-bolt"></i> Procesar todas las imágenes automáticamente';
-    cropEditor.querySelector('.card-title').after(processAllBtn);
+    // Botón "Procesar todas"
+    const processAllBtn = document.getElementById('cropProcessAllBtn');
 
     let cropImages = [];
     let cropIndex = 0;
-    window.cropBoards = [];
+    window.cropBoards = []; // { dataUrl, turno: 'white'|'black'|null }
     let cropSelected = new Set();
     let cropTemplate = null;
     let cropOriginalImage = null;
@@ -49,12 +45,14 @@
     let cropBoxX = 0, cropBoxY = 0, cropBoxW = 200, cropBoxH = 200;
     let cropZoomActive = false;
 
+    // ---------- INICIALIZAR CAJA DE RECORTE ----------
     function initCropBox() {
         cropBox = document.querySelector('.crop-box');
         if (!cropBox) return;
         cropBox.classList.add('hidden');
     }
 
+    // ---------- CARGAR IMÁGENES ----------
     cropLoadBtn.addEventListener('click', function() {
         const files = cropFileInput.files;
         if (!files.length) {
@@ -96,6 +94,7 @@
         cropNextBtn.disabled = cropIndex === cropImages.length - 1;
     }
 
+    // ---------- SINCronizar UI ----------
     function syncCropUI() {
         cropX.value = Math.round(cropBoxX);
         cropY.value = Math.round(cropBoxY);
@@ -113,6 +112,7 @@
         cropBox.style.height = (cropBoxH * scale) + 'px';
     }
 
+    // ---------- EVENTOS DE ARRASTRE ----------
     function attachCropEvents() {
         if (!cropBox) return;
         cropBox.removeEventListener('mousedown', startDrag);
@@ -161,6 +161,7 @@
     }
     function stopInteraction() { isDragging = false; isResizing = false; }
 
+    // ---------- ACCIONES DE RECORTE ----------
     cropApplyBtn.addEventListener('click', function() {
         let x = parseInt(cropX.value) || 0;
         let y = parseInt(cropY.value) || 0;
@@ -202,19 +203,32 @@
         return canvas.toDataURL('image/jpeg', 0.92);
     }
 
+    // ---------- GUARDAR RECORTE (CON DESCARGA AUTOMÁTICA) ----------
     cropSaveBtn.addEventListener('click', function() {
         const dataUrl = getCropDataUrl();
         if (!dataUrl) { window.showNotification('Error al recortar', true); return; }
+        
+        // Guardar en galería
+        const idx = window.cropBoards.length;
         window.cropBoards.push({ dataUrl, turno: null });
         renderCropGallery();
-        window.showNotification('Recorte guardado');
+        
+        // Descargar automáticamente el recorte
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = `tablero_${idx+1}.jpg`;
+        link.click();
+        
+        window.showNotification(`Recorte ${idx+1} guardado y descargado`);
         if (cropIndex < cropImages.length - 1) { cropIndex++; loadCropImage(); }
         else { cropGallery.style.display = 'block'; }
     });
 
+    // ---------- NAVEGACIÓN ENTRE IMÁGENES ----------
     cropPrevBtn.addEventListener('click', function() { if (cropIndex > 0) { cropIndex--; loadCropImage(); } });
     cropNextBtn.addEventListener('click', function() { if (cropIndex < cropImages.length-1) { cropIndex++; loadCropImage(); } });
 
+    // ---------- PLANTILLAS ----------
     cropTemplateSaveBtn.addEventListener('click', function() {
         if (cropOriginalWidth && cropOriginalHeight) {
             cropTemplate = {
@@ -242,7 +256,7 @@
         window.showNotification('Plantilla aplicada');
     });
 
-    // NUEVO: Procesar todas las imágenes automáticamente
+    // ---------- PROCESAR TODAS LAS IMÁGENES (CON DESCARGA INDIVIDUAL) ----------
     processAllBtn.addEventListener('click', function() {
         if (cropImages.length === 0) {
             window.showNotification('Primero carga imágenes.', true);
@@ -267,7 +281,6 @@
         const total = cropImages.length;
         window.showNotification(`Procesando ${total} imágenes...`);
 
-        // Función recursiva para procesar una por una
         function processNext(idx) {
             if (idx >= total) {
                 window.showNotification(`¡Procesadas ${total} imágenes!`);
@@ -291,7 +304,15 @@
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
                     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                    const boardIdx = window.cropBoards.length;
                     window.cropBoards.push({ dataUrl, turno: null });
+                    
+                    // Descargar cada imagen procesada
+                    const link = document.createElement('a');
+                    link.href = dataUrl;
+                    link.download = `tablero_${boardIdx+1}.jpg`;
+                    link.click();
+                    
                     processed++;
                     processNext(idx + 1);
                 };
@@ -302,6 +323,7 @@
         processNext(0);
     });
 
+    // ---------- RENDERIZAR GALERÍA (CON BOTÓN DE DESCARGA INDIVIDUAL) ----------
     function renderCropGallery() {
         cropGalleryGrid.innerHTML = '';
         cropCount.textContent = window.cropBoards.length;
@@ -329,9 +351,25 @@
                 else cropSelected.delete(idx);
                 renderCropGallery();
             });
+
+            // Botón de descarga individual
+            const downloadBtn = document.createElement('button');
+            downloadBtn.className = 'btn btn-sm btn-success';
+            downloadBtn.innerHTML = '<i class="fas fa-download"></i>';
+            downloadBtn.title = 'Descargar este recorte';
+            downloadBtn.style.marginLeft = '5px';
+            downloadBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const link = document.createElement('a');
+                link.href = board.dataUrl;
+                link.download = `tablero_${idx+1}${board.turno ? '_'+board.turno : ''}.jpg`;
+                link.click();
+            });
+
             info.appendChild(badge);
             info.appendChild(label);
             info.appendChild(cb);
+            info.appendChild(downloadBtn);
 
             img.addEventListener('click', function(e) {
                 e.stopPropagation();
@@ -350,6 +388,7 @@
         if (window.updatePdfPreview) window.updatePdfPreview();
     }
 
+    // ---------- EVENTOS DE GALERÍA ----------
     cropSelectAll.addEventListener('click', function() {
         for (let i = 0; i < window.cropBoards.length; i++) cropSelected.add(i);
         renderCropGallery();
@@ -383,6 +422,7 @@
         }
     });
 
+    // Exponer funciones para otros módulos
     window.renderCropGallery = renderCropGallery;
     window.getCropBoards = () => window.cropBoards;
 
