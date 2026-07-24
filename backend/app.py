@@ -90,6 +90,7 @@ def process_image_to_fen_and_thumbnail(image_bytes):
 
         # Detectar y recortar tablero
         board_img = detect_board(img)
+        print(f"[INFO] Recorte obtenido: {board_img.shape}")
 
         # --- Generar miniatura (200x200) ---
         h, w = board_img.shape[:2]
@@ -113,7 +114,7 @@ def process_image_to_fen_and_thumbnail(image_bytes):
         if img_pil.size[0] > 1000 or img_pil.size[1] > 1000:
             img_pil.thumbnail((1000, 1000))
             buffer_pil = io.BytesIO()
-            img_pil.save(buffer_pil, format='JPEG', quality=75)
+            img_pil.save(buffer_pil, format='JPEG', quality=80)
             board_bytes = buffer_pil.getvalue()
 
         encoded_string = base64.b64encode(board_bytes).decode('utf-8')
@@ -125,6 +126,9 @@ def process_image_to_fen_and_thumbnail(image_bytes):
             "predict_turn": True
         }
         response = requests.post('http://app.chessvision.ai/predict', json=payload, timeout=15)
+        print(f"[DEBUG] Chessvision.ai status: {response.status_code}")
+        print(f"[DEBUG] Chessvision.ai response: {response.text[:500]}")
+
         fen = None
         if response.status_code == 200:
             data = response.json()
@@ -134,12 +138,45 @@ def process_image_to_fen_and_thumbnail(image_bytes):
                 if not fen:
                     return thumbnail_b64, None, f"FEN inválido: {raw_fen}"
             else:
+                # Si Chessvision.ai falla, intentar con la imagen completa (fallback)
+                print("[WARN] Chessvision.ai falló con recorte. Intentando con imagen completa...")
+                # Reintentar con la imagen completa
+                _, full_bytes = cv2.imencode('.jpg', img)
+                full_bytes = full_bytes.tobytes()
+                img_pil_full = Image.open(io.BytesIO(full_bytes))
+                if img_pil_full.size[0] > 1000 or img_pil_full.size[1] > 1000:
+                    img_pil_full.thumbnail((1000, 1000))
+                    buffer_full = io.BytesIO()
+                    img_pil_full.save(buffer_full, format='JPEG', quality=80)
+                    full_bytes = buffer_full.getvalue()
+                encoded_full = base64.b64encode(full_bytes).decode('utf-8')
+                payload_full = {
+                    "board_orientation": "predict",
+                    "cropped": False,
+                    "current_player": "white",
+                    "image": f"data:image/jpeg;base64,{encoded_full}",
+                    "predict_turn": True
+                }
+                response_full = requests.post('http://app.chessvision.ai/predict', json=payload_full, timeout=15)
+                print(f"[DEBUG] Chessvision.ai (full image) status: {response_full.status_code}")
+                if response_full.status_code == 200:
+                    data_full = response_full.json()
+                    if data_full.get('success'):
+                        raw_fen_full = data_full.get('result')
+                        fen = clean_fen(raw_fen_full)
+                        if fen:
+                            print(f"[INFO] FEN obtenido con imagen completa: {fen}")
+                            return thumbnail_b64, fen, None
+                        else:
+                            return thumbnail_b64, None, f"FEN inválido (imagen completa): {raw_fen_full}"
+                # Si también falla la imagen completa, devolver error del primer intento
                 return thumbnail_b64, None, f"Chessvision.ai falló: {data.get('message', '')}"
         else:
             return thumbnail_b64, None, f"Chessvision.ai error HTTP {response.status_code}"
 
         return thumbnail_b64, fen, None
     except Exception as e:
+        print(f"[ERROR] process_image_to_fen_and_thumbnail: {traceback.format_exc()}")
         return None, None, str(e)
 
 # ---------- ENDPOINTS ----------
