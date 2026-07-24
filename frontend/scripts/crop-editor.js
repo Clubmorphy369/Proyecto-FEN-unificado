@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (CON DESCARGA DE IMÁGENES)
+// MÓDULO 2: RECORTE MANUAL (SIN DESCARGA AUTOMÁTICA)
 // ============================================
 (function() {
     'use strict';
@@ -28,9 +28,8 @@
     const cropBatchBlack = document.getElementById('cropBatchBlack');
     const cropClearAll = document.getElementById('cropClearAll');
     const cropGallery = document.getElementById('cropGallery');
-
-    // Botón "Procesar todas"
     const processAllBtn = document.getElementById('cropProcessAllBtn');
+    const cropDownloadAllBtn = document.getElementById('cropDownloadAllBtn');
 
     let cropImages = [];
     let cropIndex = 0;
@@ -203,23 +202,15 @@
         return canvas.toDataURL('image/jpeg', 0.92);
     }
 
-    // ---------- GUARDAR RECORTE (CON DESCARGA AUTOMÁTICA) ----------
+    // ---------- GUARDAR RECORTE (SIN DESCARGA AUTOMÁTICA) ----------
     cropSaveBtn.addEventListener('click', function() {
         const dataUrl = getCropDataUrl();
         if (!dataUrl) { window.showNotification('Error al recortar', true); return; }
         
-        // Guardar en galería
-        const idx = window.cropBoards.length;
+        // Guardar en galería sin turno
         window.cropBoards.push({ dataUrl, turno: null });
         renderCropGallery();
-        
-        // Descargar automáticamente el recorte
-        const link = document.createElement('a');
-        link.href = dataUrl;
-        link.download = `tablero_${idx+1}.jpg`;
-        link.click();
-        
-        window.showNotification(`Recorte ${idx+1} guardado y descargado`);
+        window.showNotification(`Recorte guardado. Asigna turno en la galería.`);
         if (cropIndex < cropImages.length - 1) { cropIndex++; loadCropImage(); }
         else { cropGallery.style.display = 'block'; }
     });
@@ -256,7 +247,7 @@
         window.showNotification('Plantilla aplicada');
     });
 
-    // ---------- PROCESAR TODAS LAS IMÁGENES (CON DESCARGA INDIVIDUAL) ----------
+    // ---------- PROCESAR TODAS LAS IMÁGENES (SIN DESCARGA AUTOMÁTICA) ----------
     processAllBtn.addEventListener('click', function() {
         if (cropImages.length === 0) {
             window.showNotification('Primero carga imágenes.', true);
@@ -283,7 +274,7 @@
 
         function processNext(idx) {
             if (idx >= total) {
-                window.showNotification(`¡Procesadas ${total} imágenes!`);
+                window.showNotification(`¡Procesadas ${total} imágenes! Ahora asigna turnos en la galería.`);
                 renderCropGallery();
                 return;
             }
@@ -304,15 +295,7 @@
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
                     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-                    const boardIdx = window.cropBoards.length;
                     window.cropBoards.push({ dataUrl, turno: null });
-                    
-                    // Descargar cada imagen procesada
-                    const link = document.createElement('a');
-                    link.href = dataUrl;
-                    link.download = `tablero_${boardIdx+1}.jpg`;
-                    link.click();
-                    
                     processed++;
                     processNext(idx + 1);
                 };
@@ -420,6 +403,23 @@
             renderCropGallery();
             window.showNotification('Todos los recortes eliminados');
         }
+    });
+
+    // ---------- DESCARGAR TODAS LAS IMÁGENES (RESPETANDO TURNOS) ----------
+    cropDownloadAllBtn.addEventListener('click', function() {
+        if (window.cropBoards.length === 0) {
+            window.showNotification('No hay recortes para descargar', true);
+            return;
+        }
+        window.cropBoards.forEach((board, idx) => {
+            setTimeout(() => {
+                const link = document.createElement('a');
+                link.href = board.dataUrl;
+                link.download = `tablero_${idx+1}${board.turno ? '_'+board.turno : ''}.jpg`;
+                link.click();
+            }, idx * 200);
+        });
+        window.showNotification('Descargando todas las imágenes...');
     });
 
     // Exponer funciones para otros módulos
