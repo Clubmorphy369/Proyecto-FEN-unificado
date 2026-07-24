@@ -8,3 +8,4 @@ opencv-python-headless==4.9.0.80
 numpy==1.26.4
 PyPDF2==3.0.1
 python-chess==1.999
+chess_diagram_to_fen
