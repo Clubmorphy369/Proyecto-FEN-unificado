@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 3: GENERAR PDF
+// MÓDULO 3: GENERAR PDF (SOLO SELECCIONADAS)
 // ============================================
 (function() {
     'use strict';
@@ -10,16 +10,27 @@
     const pdfStatus = document.getElementById('pdfStatus');
     const pdfPreview = document.getElementById('pdfPreview');
 
-    // Función para actualizar la vista previa (se llama desde otros módulos)
+    // Función para actualizar la vista previa (solo seleccionadas)
     window.updatePdfPreview = function() {
         pdfPreview.innerHTML = '';
-        const boards = window.cropBoards || [];
-        if (!boards.length) {
-            pdfPreview.innerHTML = '<p style="text-align:center; color:#999;">No hay tableros en la galería. Recorta algunos en la pestaña "Recorte manual".</p>';
+        // Obtener todas las boards
+        const allBoards = window.cropBoards || [];
+        // Si hay selección, filtrar; si no, usar todas
+        const selectedIndices = window.cropSelected ? window.cropSelected : new Set();
+        let boardsToShow = [];
+        if (selectedIndices.size > 0) {
+            // Solo las seleccionadas
+            boardsToShow = allBoards.filter((_, idx) => selectedIndices.has(idx));
+        } else {
+            boardsToShow = allBoards;
+        }
+
+        if (!boardsToShow.length) {
+            pdfPreview.innerHTML = '<p style="text-align:center; color:#999;">No hay tableros para mostrar (selecciona algunos en la galería).</p>';
             return;
         }
         const itemsPerPage = 6;
-        const pageCount = Math.ceil(boards.length / itemsPerPage);
+        const pageCount = Math.ceil(boardsToShow.length / itemsPerPage);
         const headerText = pdfHeader.value;
         const footerText = pdfFooter.value;
 
@@ -43,9 +54,9 @@
                 num.style.fontWeight = 'bold';
                 num.style.marginBottom = '2px';
                 cell.appendChild(num);
-                if (idx < boards.length) {
+                if (idx < boardsToShow.length) {
                     const img = document.createElement('img');
-                    img.src = boards[idx].dataUrl;
+                    img.src = boardsToShow[idx].dataUrl;
                     cell.appendChild(img);
                     const lines = document.createElement('div');
                     lines.className = 'answer-lines';
@@ -75,11 +86,20 @@
     };
 
     pdfGenerateBtn.addEventListener('click', function() {
-        const boards = window.cropBoards || [];
-        if (!boards.length) {
-            window.showNotification('No hay tableros para generar PDF', true);
+        const allBoards = window.cropBoards || [];
+        const selectedIndices = window.cropSelected ? window.cropSelected : new Set();
+        let boardsToExport = [];
+        if (selectedIndices.size > 0) {
+            boardsToExport = allBoards.filter((_, idx) => selectedIndices.has(idx));
+        } else {
+            boardsToExport = allBoards;
+        }
+
+        if (!boardsToExport.length) {
+            window.showNotification('No hay tableros seleccionados para generar PDF.', true);
             return;
         }
+
         pdfStatus.textContent = 'Generando PDF...';
         pdfGenerateBtn.disabled = true;
         setTimeout(() => {
@@ -87,7 +107,7 @@
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF('p', 'mm', 'a4');
                 const itemsPerPage = 6;
-                const pageCount = Math.ceil(boards.length / itemsPerPage);
+                const pageCount = Math.ceil(boardsToExport.length / itemsPerPage);
                 const imgW = 58.5;
                 const imgH = 58.5;
                 const positions = [
@@ -98,7 +118,7 @@
                 const headerText = pdfHeader.value;
                 const footerText = pdfFooter.value;
 
-                for (let i = 0; i < boards.length; i++) {
+                for (let i = 0; i < boardsToExport.length; i++) {
                     const pageIndex = Math.floor(i / itemsPerPage);
                     const posIndex = i % itemsPerPage;
                     if (posIndex === 0 && i > 0) doc.addPage();
@@ -111,7 +131,7 @@
                     doc.setFontSize(12);
                     doc.text(`${i+1}`, cx, numY, { align: 'center' });
                     doc.addImage(
-                        boards[i].dataUrl,
+                        boardsToExport[i].dataUrl,
                         'JPEG',
                         positions[posIndex].x,
                         positions[posIndex].y,
@@ -147,7 +167,4 @@
     // Actualizar vista previa cuando cambian header/footer
     pdfHeader.addEventListener('input', window.updatePdfPreview);
     pdfFooter.addEventListener('input', window.updatePdfPreview);
-
-    // Inicializar vista previa al cargar
-    setTimeout(window.updatePdfPreview, 500);
 })();
