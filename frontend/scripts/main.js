@@ -38,15 +38,27 @@
     const autoStatus = document.getElementById('autoStatus');
     const autoResults = document.getElementById('autoResults');
     const processGalleryBtn = document.getElementById('processGalleryBtn');
+    const clearAutoResultsBtn = document.getElementById('clearAutoResultsBtn');
 
     let autoData = [];
     let autoFens = new Set(); // Para deduplicación
 
-    // ---------- FUNCIÓN PARA ALTERNAR TURNO ----------
+    // ---------- FUNCIÓN PARA ALTERNAR TURNO (MANUAL) ----------
     function toggleTurn(fen) {
         const parts = fen.split(' ');
         if (parts.length >= 3) {
             parts[1] = parts[1] === 'w' ? 'b' : 'w';
+            return parts.join(' ');
+        }
+        return fen;
+    }
+
+    // ---------- FUNCIÓN PARA FORZAR UN TURNO EN EL FEN ----------
+    function setTurnInFen(fen, turnoChar) {
+        // turnoChar debe ser 'w' o 'b'
+        const parts = fen.split(' ');
+        if (parts.length >= 3) {
+            parts[1] = turnoChar;
             return parts.join(' ');
         }
         return fen;
@@ -71,7 +83,7 @@
         return addedCount;
     }
 
-    // ---------- FUNCIÓN PARA RENDERIZAR LA TABLA (CON BOTÓN DE TURNO Y TIJERA) ----------
+    // ---------- FUNCIÓN PARA RENDERIZAR LA TABLA (CON BOTONES 🔄 Y ✂️) ----------
     function renderAutoResults() {
         if (!autoData || autoData.length === 0) {
             autoResults.innerHTML = '<p>No hay resultados. Sube imágenes o procesa recortes desde la galería.</p>';
@@ -94,18 +106,16 @@
             const fen = item.fen || 'Error';
             const isError = !item.fen;
             const thumb = item.thumbnail ? `<img src="data:image/jpeg;base64,${item.thumbnail}" class="thumbnail-img">` : '-';
-            const rowId = `auto-row-${i}`;
-
-            html += `<tr id="${rowId}" data-index="${i}">
+            html += `<tr id="auto-row-${i}" data-index="${i}">
                 <td>${item.original_filename || item.file}</td>
                 <td>${item.page || '-'}</td>
                 <td class="${isError ? 'error' : 'success'} fen-cell" id="fen-cell-${i}">${fen}</td>
                 <td>${thumb}</td>
                 <td style="text-align:center;">
-                    ${!isError ? `<button class="btn-toggle-turn" data-index="${i}" data-fen="${fen}" title="Alternar turno (blancas/negras)" style="background:transparent; border:none; cursor:pointer; font-size:1.1rem;">🔄</button>` : '-'}
+                    ${!isError ? `<button class="btn-toggle-turn" data-index="${i}" data-fen="${fen}" title="Alternar turno" style="background:transparent; border:none; cursor:pointer; font-size:1.1rem;">🔄</button>` : '-'}
                 </td>
                 <td style="text-align:center;">
-                    ${!isError ? `<button class="btn-copy-fen" data-fen="${fen}" data-index="${i}" title="Copiar FEN y eliminar fila" style="background:transparent; border:none; cursor:pointer; font-size:1.2rem;">✂️</button>` : '-'}
+                    ${!isError ? `<button class="btn-copy-fen" data-fen="${fen}" data-index="${i}" title="Copiar y eliminar" style="background:transparent; border:none; cursor:pointer; font-size:1.2rem;">✂️</button>` : '-'}
                 </td>
             </tr>`;
         }
@@ -121,23 +131,18 @@
                 if (isNaN(index) || !currentFen) return;
 
                 const newFen = toggleTurn(currentFen);
-                // Actualizar el FEN en el array autoData
                 autoData[index].fen = newFen;
-                // Actualizar la celda de FEN
-                const fenCell = document.getElementById(`fen-cell-${index}`);
-                if (fenCell) fenCell.textContent = newFen;
-                // Actualizar el atributo data-fen del botón turno y del botón tijera
+                document.getElementById(`fen-cell-${index}`).textContent = newFen;
                 this.setAttribute('data-fen', newFen);
                 const copyBtn = document.querySelector(`.btn-copy-fen[data-index="${index}"]`);
                 if (copyBtn) copyBtn.setAttribute('data-fen', newFen);
-                // Actualizar el Set de FEN (para deduplicación) - eliminar el antiguo, añadir el nuevo
                 if (currentFen) autoFens.delete(currentFen);
                 autoFens.add(newFen);
-                window.showNotification('Turno actualizado: ' + (newFen.includes(' w ') ? 'Blancas' : 'Negras'));
+                window.showNotification('Turno: ' + (newFen.includes(' w ') ? 'Blancas' : 'Negras'));
             });
         });
 
-        // ---------- EVENTOS PARA BOTONES ✂️ ----------
+        // ---------- EVENTOS PARA BOTONES DE COPIAR Y ELIMINAR ----------
         document.querySelectorAll('.btn-copy-fen').forEach(btn => {
             btn.addEventListener('click', function() {
                 const fen = this.getAttribute('data-fen');
@@ -145,15 +150,13 @@
                 if (!fen || isNaN(index)) return;
 
                 navigator.clipboard.writeText(fen).then(() => {
-                    // Eliminar del array y del Set
-                    const removedFen = autoData[index].fen;
-                    if (removedFen) autoFens.delete(removedFen);
+                    if (autoData[index]?.fen) autoFens.delete(autoData[index].fen);
                     autoData.splice(index, 1);
                     renderAutoResults();
                     updateExportButtonState();
                     window.showNotification('FEN copiado y eliminado');
                 }).catch(err => {
-                    window.showNotification('Error al copiar: ' + err.message, true);
+                    window.showNotification('Error: ' + err.message, true);
                 });
             });
         });
@@ -202,7 +205,7 @@
         }
     });
 
-    // ---------- PROCESAR RECORTES DESDE LA GALERÍA (PESTAÑA 2) ----------
+    // ---------- PROCESAR RECORTES DESDE LA GALERÍA (CON TURNO) ----------
     processGalleryBtn.addEventListener('click', async function() {
         const boards = window.cropBoards || [];
         if (!boards.length) {
@@ -228,10 +231,17 @@
                 });
                 const data = await resp.json();
                 if (data.success) {
+                    let fen = data.fen;
+                    // ---------- APLICAR EL TURNO DE LA GALERÍA SI EXISTE ----------
+                    if (fen && board.turno) {
+                        const turnoChar = board.turno === 'white' ? 'w' : 'b';
+                        fen = setTurnInFen(fen, turnoChar);
+                    }
+                    // -----------------------------------------------------------
                     newResults.push({
-                        original_filename: `Recorte ${i+1}`,
+                        original_filename: board.turno ? `Recorte ${i+1} (${board.turno})` : `Recorte ${i+1}`,
                         file: `recorte_${i+1}`,
-                        fen: data.fen,
+                        fen: fen,
                         thumbnail: data.thumbnail,
                         error: null
                     });
@@ -268,12 +278,12 @@
             return;
         }
         const studyName = prompt('Nombre del estudio:', 'Mi Estudio') || 'Mi Estudio';
-        const user = prompt('Tu usuario de Lichess:', 'Anónimo') || 'Anónimo';
+        const user = prompt('Usuario de Lichess:', 'Anónimo') || 'Anónimo';
         try {
             const resp = await fetch('/export-pgn', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ fens: fens, study_name: studyName, user: user })
+                body: JSON.stringify({ fens, study_name: studyName, user })
             });
             if (!resp.ok) throw new Error('Error al exportar');
             const blob = await resp.blob();
@@ -288,6 +298,16 @@
             window.showNotification('Error: ' + e.message, true);
         }
     });
+
+    // ---------- LIMPIAR RESULTADOS ----------
+    if (clearAutoResultsBtn) {
+        clearAutoResultsBtn.addEventListener('click', function() {
+            if (confirm('¿Eliminar todos los resultados de la pestaña 1?')) {
+                window.clearAutoData();
+                window.showNotification('Resultados eliminados');
+            }
+        });
+    }
 
     // ---------- EXPONER FUNCIONES PARA OTROS MÓDULOS ----------
     window.getAutoFens = getFensForExport;
