@@ -1,6 +1,5 @@
 import os
 import tempfile
-import requests
 import base64
 import cv2
 import numpy as np
@@ -13,19 +12,18 @@ import traceback
 import shutil
 from datetime import datetime, timezone
 import re
+import chess_diagram_to_fen  # ← NUEVA DEPENDENCIA LOCAL
 
 app = Flask(__name__)
 
-app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024  # 30 MB
+app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024
 UPLOAD_FOLDER = tempfile.mkdtemp()
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, '..', 'frontend')
 
-# ---------- UTILIDADES ----------
 def clean_fen(raw_fen):
-    """Limpia y valida un FEN (reemplaza _ por espacios, trunca a 6 campos)."""
     if not raw_fen:
         return None
     fen = raw_fen.replace('_', ' ')
@@ -34,22 +32,8 @@ def clean_fen(raw_fen):
         return ' '.join(parts[:6])
     return None
 
-def crop_board_center(image, crop_percent=0.75):
-    """Recorta el centro cuadrado de una imagen (fallback)."""
-    h, w = image.shape[:2]
-    size = min(h, w)
-    crop_size = int(size * crop_percent)
-    center_x = w // 2
-    center_y = h // 2
-    half = crop_size // 2
-    x1 = max(0, center_x - half)
-    y1 = max(0, center_y - half)
-    x2 = min(w, center_x + half)
-    y2 = min(h, center_y + half)
-    return image[y1:y2, x1:x2]
-
 def detect_board(image):
-    """Detecta tablero por contornos o devuelve recorte central."""
+    """Detecta el tablero o devuelve recorte central."""
     h, w = image.shape[:2]
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
@@ -59,12 +43,10 @@ def detect_board(image):
     kernel = np.ones((5, 5), np.uint8)
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
-
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     best_rect = None
     max_area = 0
     min_area = 5000
-
     for cnt in contours:
         area = cv2.contourArea(cnt)
         if area < min_area:
@@ -78,7 +60,6 @@ def detect_board(image):
                 if area > max_area:
                     max_area = area
                     best_rect = (x, y, w_box, h_box)
-
     if best_rect:
         x, y, w_box, h_box = best_rect
         margin = 10
@@ -87,11 +68,20 @@ def detect_board(image):
         x2 = min(w, x + w_box + margin)
         y2 = min(h, y + h_box + margin)
         return image[y1:y2, x1:x2]
-
-    return crop_board_center(image, crop_percent=0.75)
+    # Fallback: recorte central cuadrado
+    size = min(h, w)
+    crop_size = int(size * 0.75)
+    center_x = w // 2
+    center_y = h // 2
+    half = crop_size // 2
+    x1 = max(0, center_x - half)
+    y1 = max(0, center_y - half)
+    x2 = min(w, center_x + half)
+    y2 = min(h, center_y + half)
+    return image[y1:y2, x1:x2]
 
 def process_image_to_fen_and_thumbnail(image_bytes):
-    """Procesa una imagen y devuelve (FEN, miniatura_base64, error)."""
+    """Procesa imagen y devuelve (thumbnail_b64, fen, error)."""
     try:
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -115,41 +105,24 @@ def process_image_to_fen_and_thumbnail(image_bytes):
         _, buffer = cv2.imencode('.jpg', canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
         thumbnail_b64 = base64.b64encode(buffer).decode('utf-8')
 
-        # --- Enviar a Chessvision.ai para obtener FEN ---
-        _, board_bytes = cv2.imencode('.jpg', board_img)
-        board_bytes = board_bytes.tobytes()
-
-        img_pil = Image.open(io.BytesIO(board_bytes))
-        if img_pil.size[0] > 1000 or img_pil.size[1] > 1000:
-            img_pil.thumbnail((1000, 1000))
-            buffer_pil = io.BytesIO()
-            img_pil.save(buffer_pil, format='JPEG', quality=75)
-            board_bytes = buffer_pil.getvalue()
-
-        encoded_string = base64.b64encode(board_bytes).decode('utf-8')
-        payload = {
-            "board_orientation": "predict",
-            "cropped": False,
-            "current_player": "white",
-            "image": f"data:image/jpeg;base64,{encoded_string}",
-            "predict_turn": True
-        }
-        response = requests.post('http://app.chessvision.ai/predict', json=payload, timeout=15)
+        # --- Obtener FEN con chess_diagram_to_fen (local) ---
+        board_rgb = cv2.cvtColor(board_img, cv2.COLOR_BGR2RGB)
+        pil_img = Image.fromarray(board_rgb)
+        result = chess_diagram_to_fen.get_fen(
+            img=pil_img,
+            game="chess",
+            auto_rotate_image=True,
+            auto_rotate_board=True
+        )
         fen = None
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('success'):
-                raw_fen = data.get('result')
-                fen = clean_fen(raw_fen)
-                if not fen:
-                    return thumbnail_b64, None, f"FEN inválido: {raw_fen}"
-            else:
-                return thumbnail_b64, None, f"Chessvision.ai falló: {data.get('message', '')}"
+        if result and result.fen:
+            fen = clean_fen(result.fen)
+            if not fen:
+                return thumbnail_b64, None, "FEN inválido"
         else:
-            return thumbnail_b64, None, f"Chessvision.ai error HTTP {response.status_code}"
+            return thumbnail_b64, None, "No se detectó tablero"
 
         return thumbnail_b64, fen, None
-
     except Exception as e:
         return None, None, str(e)
 
@@ -275,18 +248,14 @@ def upload_files():
 
 @app.route('/upload-crop', methods=['POST'])
 def upload_crop():
-    """Recibe una imagen recortada manualmente (base64) y devuelve el FEN."""
     try:
         data = request.get_json()
         image_base64 = data.get('image', '')
         if not image_base64:
             return jsonify({'error': 'No se proporcionó imagen'}), 400
-
-        # Decodificar base64
         if image_base64.startswith('data:image'):
             image_base64 = image_base64.split(',')[1]
         image_bytes = base64.b64decode(image_base64)
-
         thumbnail, fen, error = process_image_to_fen_and_thumbnail(image_bytes)
         if fen:
             return jsonify({'success': True, 'fen': fen, 'thumbnail': thumbnail})
@@ -303,17 +272,13 @@ def export_pgn():
         fens = data.get('fens', [])
         study_name = data.get('study_name', 'Mi Estudio de Ajedrez')
         user = data.get('user', 'Anónimo')
-
         if not fens:
             return jsonify({'error': 'No se proporcionaron FEN'}), 400
-
         if len(fens) > 64:
             fens = fens[:64]
-
         now = datetime.now(timezone.utc)
         date_str = now.strftime("%Y.%m.%d")
         time_str = now.strftime("%H:%M:%S")
-
         pgn_lines = []
         for idx, fen in enumerate(fens, 1):
             chapter_name = f"Capítulo {idx}"
@@ -334,12 +299,10 @@ def export_pgn():
             pgn_lines.append("")
             pgn_lines.append(" *")
             pgn_lines.append("")
-
         pgn_text = "\n".join(pgn_lines)
         safe_study_name = re.sub(r'[^a-zA-Z0-9-]', '-', study_name).lower()
         safe_user = re.sub(r'[^a-zA-Z0-9-]', '-', user).lower()
         filename = f"lichess_study_{safe_study_name}_by_{safe_user}_{date_str.replace('.', '-')}.pgn"
-
         response = Response(pgn_text, mimetype='text/plain')
         response.headers.set("Content-Disposition", "attachment", filename=filename)
         return response
