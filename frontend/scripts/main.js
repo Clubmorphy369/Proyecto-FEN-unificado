@@ -39,10 +39,116 @@
     const autoResults = document.getElementById('autoResults');
     const processGalleryBtn = document.getElementById('processGalleryBtn');
 
-    let autoFens = [];
+    // Almacén de datos (acumulativo)
     let autoData = [];
+    let autoFens = new Set(); // Usamos Set para deduplicación eficiente
 
-    // Procesar archivos subidos directamente
+    // ---------- FUNCIÓN PARA AÑADIR RESULTADOS (CON DEDUPLICACIÓN) ----------
+    function addResultsToAutoData(newResults) {
+        if (!newResults || !newResults.length) return;
+        let addedCount = 0;
+        for (const item of newResults) {
+            const fen = item.fen || null;
+            // Si tiene FEN y no está en el Set, lo añadimos
+            if (fen && !autoFens.has(fen)) {
+                autoFens.add(fen);
+                autoData.push(item);
+                addedCount++;
+            }
+            // Si no tiene FEN, lo añadimos igual (para mostrar errores)
+            else if (!fen) {
+                // Solo añadir si no es un duplicado de un error previo
+                // Para simplificar, añadimos todos los errores (no se deduplican)
+                autoData.push(item);
+                addedCount++;
+            }
+        }
+        renderAutoResults();
+        return addedCount;
+    }
+
+    // ---------- FUNCIÓN PARA RENDERIZAR LA TABLA (CON BOTÓN ✂️) ----------
+    function renderAutoResults() {
+        if (!autoData || autoData.length === 0) {
+            autoResults.innerHTML = '<p>No hay resultados. Sube imágenes o procesa recortes desde la galería.</p>';
+            updateExportButtonState();
+            return;
+        }
+
+        let html = `<table>
+            <thead><tr>
+                <th>Archivo</th>
+                <th>Página</th>
+                <th>FEN</th>
+                <th>Miniatura</th>
+                <th style="width:60px;">Acción</th>
+            </tr></thead><tbody>`;
+
+        for (let i = 0; i < autoData.length; i++) {
+            const item = autoData[i];
+            const fen = item.fen || 'Error';
+            const isError = !item.fen;
+            const thumb = item.thumbnail ? `<img src="data:image/jpeg;base64,${item.thumbnail}" class="thumbnail-img">` : '-';
+            // Generar un ID único para la fila
+            const rowId = `auto-row-${i}`;
+            html += `<tr id="${rowId}" data-index="${i}">
+                <td>${item.original_filename || item.file}</td>
+                <td>${item.page || '-'}</td>
+                <td class="${isError ? 'error' : 'success'} fen-cell">${fen}</td>
+                <td>${thumb}</td>
+                <td style="text-align:center;">
+                    ${!isError ? `<button class="btn-copy-fen" data-fen="${fen}" data-index="${i}" title="Copiar FEN y eliminar fila" style="background:transparent; border:none; cursor:pointer; font-size:1.2rem;">✂️</button>` : '-'}
+                </td>
+            </tr>`;
+        }
+
+        html += '</tbody></table>';
+        autoResults.innerHTML = html;
+
+        // ---------- EVENTOS PARA LOS BOTONES ✂️ ----------
+        document.querySelectorAll('.btn-copy-fen').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const fen = this.getAttribute('data-fen');
+                const index = parseInt(this.getAttribute('data-index'));
+                if (!fen || isNaN(index)) return;
+
+                // Copiar al portapapeles
+                navigator.clipboard.writeText(fen).then(() => {
+                    // Eliminar la fila del DOM y del array autoData
+                    const row = document.getElementById(`auto-row-${index}`);
+                    if (row) {
+                        row.style.transition = 'all 0.3s';
+                        row.style.opacity = '0';
+                        setTimeout(() => {
+                            // Eliminar del array autoData
+                            autoData.splice(index, 1);
+                            // Reconstruir la tabla (actualizar índices)
+                            renderAutoResults();
+                            updateExportButtonState();
+                        }, 300);
+                    }
+                    window.showNotification('FEN copiado y eliminado');
+                }).catch(err => {
+                    window.showNotification('Error al copiar: ' + err.message, true);
+                });
+            });
+        });
+
+        updateExportButtonState();
+    }
+
+    // ---------- ACTUALIZAR ESTADO DEL BOTÓN EXPORTAR ----------
+    function updateExportButtonState() {
+        const hasFens = autoData.some(item => item.fen);
+        autoExportPgnBtn.disabled = !hasFens;
+    }
+
+    // ---------- OBTENER LISTA DE FEN PARA EXPORTAR ----------
+    function getFensForExport() {
+        return autoData.filter(item => item.fen).map(item => item.fen);
+    }
+
+    // ---------- PROCESAR ARCHIVOS SUBIDOS DIRECTAMENTE ----------
     autoProcessBtn.addEventListener('click', async function() {
         const files = autoFileInput.files;
         if (!files.length) {
@@ -53,7 +159,7 @@
         for (const f of files) formData.append('files', f);
         formData.append('pages', autoPages.value);
 
-        autoStatus.textContent = 'Procesando...';
+        autoStatus.textContent = 'Procesando archivos...';
         autoProcessBtn.disabled = true;
 
         try {
@@ -61,12 +167,9 @@
             const data = await resp.json();
             if (!data.success) throw new Error(data.error || 'Error en el servidor');
 
-            autoData = data.results || [];
-            autoFens = autoData.filter(r => r.fen).map(r => r.fen);
-
-            renderAutoResults(autoData);
-            autoExportPgnBtn.disabled = autoFens.length === 0;
-            autoStatus.textContent = `Procesado ${autoData.length} elementos, ${autoFens.length} FEN obtenidos.`;
+            const newResults = data.results || [];
+            const added = addResultsToAutoData(newResults);
+            autoStatus.textContent = `Se añadieron ${added} nuevos elementos. Total: ${autoData.length} elementos.`;
         } catch (e) {
             window.showNotification('Error: ' + e.message, true);
             autoStatus.textContent = 'Error';
@@ -75,7 +178,7 @@
         }
     });
 
-    // Procesar recortes desde la galería (pestaña 2)
+    // ---------- PROCESAR RECORTES DESDE LA GALERÍA (PESTAÑA 2) ----------
     processGalleryBtn.addEventListener('click', async function() {
         const boards = window.cropBoards || [];
         if (!boards.length) {
@@ -86,11 +189,10 @@
         autoStatus.textContent = `Procesando ${boards.length} recortes desde la galería...`;
         processGalleryBtn.disabled = true;
 
-        const results = [];
+        const newResults = [];
         for (let i = 0; i < boards.length; i++) {
             const board = boards[i];
             try {
-                // Extraer la imagen base64 (sin el prefijo "data:image/...")
                 let imageData = board.dataUrl;
                 if (imageData.startsWith('data:image')) {
                     imageData = imageData.split(',')[1];
@@ -102,7 +204,7 @@
                 });
                 const data = await resp.json();
                 if (data.success) {
-                    results.push({
+                    newResults.push({
                         original_filename: `Recorte ${i+1}`,
                         file: `recorte_${i+1}`,
                         fen: data.fen,
@@ -110,7 +212,7 @@
                         error: null
                     });
                 } else {
-                    results.push({
+                    newResults.push({
                         original_filename: `Recorte ${i+1}`,
                         file: `recorte_${i+1}`,
                         fen: null,
@@ -119,7 +221,7 @@
                     });
                 }
             } catch (e) {
-                results.push({
+                newResults.push({
                     original_filename: `Recorte ${i+1}`,
                     file: `recorte_${i+1}`,
                     fen: null,
@@ -129,51 +231,25 @@
             }
         }
 
-        autoData = results;
-        autoFens = results.filter(r => r.fen).map(r => r.fen);
-        renderAutoResults(autoData);
-        autoExportPgnBtn.disabled = autoFens.length === 0;
-        autoStatus.textContent = `Procesados ${results.length} recortes, ${autoFens.length} FEN obtenidos.`;
+        const added = addResultsToAutoData(newResults);
+        autoStatus.textContent = `Procesados ${boards.length} recortes. Añadidos ${added} nuevos FEN. Total: ${autoData.length} elementos.`;
         processGalleryBtn.disabled = false;
     });
 
-    function renderAutoResults(data) {
-        if (!data || data.length === 0) {
-            autoResults.innerHTML = '<p>No se obtuvieron resultados.</p>';
+    // ---------- EXPORTAR PGN ----------
+    autoExportPgnBtn.addEventListener('click', async function() {
+        const fens = getFensForExport();
+        if (!fens.length) {
+            window.showNotification('No hay FEN válidos para exportar.', true);
             return;
         }
-        let html = `<table>
-            <thead><tr>
-                <th>Archivo</th>
-                <th>Página</th>
-                <th>FEN</th>
-                <th>Miniatura</th>
-            </tr></thead><tbody>`;
-        for (const item of data) {
-            const fen = item.fen || 'Error';
-            const isError = !item.fen;
-            const thumb = item.thumbnail ? `<img src="data:image/jpeg;base64,${item.thumbnail}" class="thumbnail-img">` : '-';
-            html += `<tr>
-                <td>${item.original_filename || item.file}</td>
-                <td>${item.page || '-'}</td>
-                <td class="${isError ? 'error' : 'success'} fen-cell">${fen}</td>
-                <td>${thumb}</td>
-            </tr>`;
-        }
-        html += '</tbody></table>';
-        autoResults.innerHTML = html;
-    }
-
-    // Exportar PGN
-    autoExportPgnBtn.addEventListener('click', async function() {
-        if (!autoFens.length) return;
         const studyName = prompt('Nombre del estudio:', 'Mi Estudio') || 'Mi Estudio';
         const user = prompt('Tu usuario de Lichess:', 'Anónimo') || 'Anónimo';
         try {
             const resp = await fetch('/export-pgn', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ fens: autoFens, study_name: studyName, user })
+                body: JSON.stringify({ fens: fens, study_name: studyName, user: user })
             });
             if (!resp.ok) throw new Error('Error al exportar');
             const blob = await resp.blob();
@@ -189,8 +265,17 @@
         }
     });
 
-    // Exponer variables para otros módulos
-    window.getAutoFens = () => autoFens;
+    // ---------- EXPONER FUNCIONES PARA OTROS MÓDULOS ----------
+    window.getAutoFens = getFensForExport;
     window.getAutoData = () => autoData;
+    window.clearAutoData = () => {
+        autoData = [];
+        autoFens = new Set();
+        renderAutoResults();
+        updateExportButtonState();
+    };
+
+    // Inicializar
+    renderAutoResults();
 
 })();
