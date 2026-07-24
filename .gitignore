@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+
+# Archivos temporales
+*.tmp
+*.log
+*.pid
+*.swp
+*.swo
+.DS_Store
+
+# Archivos de proyecto
+*.zip
+*.tar.gz
+*.pgn
+*.pdf
+*.jpg
+*.png
+
+# Render
+*.db
+*.sqlite
+uploads/
+tmp/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Firebase (si lo tienes)
+.firebaserc
+firebase-debug.log
+
+# Secretos
+.env
+*.key
+*.pem
