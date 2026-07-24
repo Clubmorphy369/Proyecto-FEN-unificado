@@ -16,7 +16,8 @@ import re
 
 app = Flask(__name__)
 
-app.config['MAX_CONTENT_LENGTH'] = 30 * 1024 * 1024
+# Tamaño máximo de archivo: 100 MB (puedes ajustarlo)
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 UPLOAD_FOLDER = tempfile.mkdtemp()
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -32,73 +33,64 @@ def clean_fen(raw_fen):
         return ' '.join(parts[:6])
     return None
 
-def detect_board(image):
-    """Detecta el tablero de ajedrez en la imagen (recorte)."""
-    h, w = image.shape[:2]
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    gray_eq = clahe.apply(gray)
-    thresh = cv2.adaptiveThreshold(gray_eq, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                   cv2.THRESH_BINARY, 15, 2)
-    kernel = np.ones((5, 5), np.uint8)
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best_rect = None
-    max_area = 0
-    min_area = 5000
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < min_area:
-            continue
-        peri = cv2.arcLength(cnt, True)
-        approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
-        if len(approx) == 4:
-            x, y, w_box, h_box = cv2.boundingRect(cnt)
-            aspect = w_box / h_box
-            if 0.7 < aspect < 1.3:
-                if area > max_area:
-                    max_area = area
-                    best_rect = (x, y, w_box, h_box)
-    if best_rect:
-        x, y, w_box, h_box = best_rect
-        margin = 10
-        x1 = max(0, x - margin)
-        y1 = max(0, y - margin)
-        x2 = min(w, x + w_box + margin)
-        y2 = min(h, y + h_box + margin)
-        return image[y1:y2, x1:x2]
-    # Fallback: recorte central cuadrado
-    size = min(h, w)
-    crop_size = int(size * 0.75)
-    center_x = w // 2
-    center_y = h // 2
-    half = crop_size // 2
-    x1 = max(0, center_x - half)
-    y1 = max(0, center_y - half)
-    x2 = min(w, center_x + half)
-    y2 = min(h, center_y + half)
-    return image[y1:y2, x1:x2]
+def split_grid(image, rows=3, cols=2, margin=10):
+    """Divide una imagen en una cuadrícula rows x cols, devuelve lista de recortes (imágenes OpenCV)."""
+    try:
+        h, w = image.shape[:2]
+        cell_h = h // rows
+        cell_w = w // cols
+        cropped = []
+        for r in range(rows):
+            for c in range(cols):
+                x1 = c * cell_w
+                y1 = r * cell_h
+                x2 = (c + 1) * cell_w
+                y2 = (r + 1) * cell_h
+                x1c = max(0, x1 + margin)
+                y1c = max(0, y1 + margin)
+                x2c = min(w, x2 - margin)
+                y2c = min(h, y2 - margin)
+                if x2c > x1c and y2c > y1c:
+                    crop = image[y1c:y2c, x1c:x2c]
+                    cropped.append(crop)
+        return cropped
+    except Exception as e:
+        print(f"[ERROR] split_grid: {e}")
+        return []
+
+def detect_boards_in_image(image_bytes, use_grid=False):
+    """Detecta tableros en una imagen. Si use_grid=True, divide en cuadrícula 3x2."""
+    try:
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return [image_bytes]
+        if use_grid:
+            result = split_grid(img, rows=3, cols=2, margin=10)
+            if result:
+                return result
+            return [img]
+        # Para imágenes sueltas, devolvemos la imagen completa (asumimos un solo tablero)
+        return [img]
+    except Exception as e:
+        print(f"[ERROR] detect_boards_in_image: {e}")
+        return [image_bytes]
 
 def process_image_to_fen_and_thumbnail(image_bytes):
-    """Procesa imagen y devuelve (thumbnail_b64, fen, error)."""
+    """Procesa una imagen (recorte o página completa) y devuelve (thumbnail_b64, fen, error)."""
     try:
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None:
             return None, None, "No se pudo decodificar la imagen"
 
-        # Detectar y recortar tablero
-        board_img = detect_board(img)
-        print(f"[INFO] Recorte obtenido: {board_img.shape}")
-
         # --- Generar miniatura (200x200) ---
-        h, w = board_img.shape[:2]
+        h, w = img.shape[:2]
         size = 200
         scale = min(size / w, size / h) if w > 0 and h > 0 else 1.0
         new_w = max(1, int(w * scale))
         new_h = max(1, int(h * scale))
-        resized = cv2.resize(board_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
         canvas = np.ones((size, size, 3), dtype=np.uint8) * 255
         x_offset = (size - new_w) // 2
         y_offset = (size - new_h) // 2
@@ -107,7 +99,7 @@ def process_image_to_fen_and_thumbnail(image_bytes):
         thumbnail_b64 = base64.b64encode(buffer).decode('utf-8')
 
         # --- Enviar a Chessvision.ai ---
-        _, board_bytes = cv2.imencode('.jpg', board_img)
+        _, board_bytes = cv2.imencode('.jpg', img)
         board_bytes = board_bytes.tobytes()
 
         img_pil = Image.open(io.BytesIO(board_bytes))
@@ -125,56 +117,21 @@ def process_image_to_fen_and_thumbnail(image_bytes):
             "image": f"data:image/jpeg;base64,{encoded_string}",
             "predict_turn": True
         }
-        response = requests.post('http://app.chessvision.ai/predict', json=payload, timeout=15)
+        response = requests.post('http://app.chessvision.ai/predict', json=payload, timeout=30)
         print(f"[DEBUG] Chessvision.ai status: {response.status_code}")
-        print(f"[DEBUG] Chessvision.ai response: {response.text[:500]}")
-
-        fen = None
         if response.status_code == 200:
             data = response.json()
             if data.get('success'):
                 raw_fen = data.get('result')
                 fen = clean_fen(raw_fen)
-                if not fen:
+                if fen:
+                    return thumbnail_b64, fen, None
+                else:
                     return thumbnail_b64, None, f"FEN inválido: {raw_fen}"
             else:
-                # Si Chessvision.ai falla, intentar con la imagen completa (fallback)
-                print("[WARN] Chessvision.ai falló con recorte. Intentando con imagen completa...")
-                # Reintentar con la imagen completa
-                _, full_bytes = cv2.imencode('.jpg', img)
-                full_bytes = full_bytes.tobytes()
-                img_pil_full = Image.open(io.BytesIO(full_bytes))
-                if img_pil_full.size[0] > 1000 or img_pil_full.size[1] > 1000:
-                    img_pil_full.thumbnail((1000, 1000))
-                    buffer_full = io.BytesIO()
-                    img_pil_full.save(buffer_full, format='JPEG', quality=80)
-                    full_bytes = buffer_full.getvalue()
-                encoded_full = base64.b64encode(full_bytes).decode('utf-8')
-                payload_full = {
-                    "board_orientation": "predict",
-                    "cropped": False,
-                    "current_player": "white",
-                    "image": f"data:image/jpeg;base64,{encoded_full}",
-                    "predict_turn": True
-                }
-                response_full = requests.post('http://app.chessvision.ai/predict', json=payload_full, timeout=15)
-                print(f"[DEBUG] Chessvision.ai (full image) status: {response_full.status_code}")
-                if response_full.status_code == 200:
-                    data_full = response_full.json()
-                    if data_full.get('success'):
-                        raw_fen_full = data_full.get('result')
-                        fen = clean_fen(raw_fen_full)
-                        if fen:
-                            print(f"[INFO] FEN obtenido con imagen completa: {fen}")
-                            return thumbnail_b64, fen, None
-                        else:
-                            return thumbnail_b64, None, f"FEN inválido (imagen completa): {raw_fen_full}"
-                # Si también falla la imagen completa, devolver error del primer intento
                 return thumbnail_b64, None, f"Chessvision.ai falló: {data.get('message', '')}"
         else:
             return thumbnail_b64, None, f"Chessvision.ai error HTTP {response.status_code}"
-
-        return thumbnail_b64, fen, None
     except Exception as e:
         print(f"[ERROR] process_image_to_fen_and_thumbnail: {traceback.format_exc()}")
         return None, None, str(e)
@@ -197,22 +154,6 @@ def upload_files():
         if not files:
             return jsonify({'error': 'No se seleccionaron archivos'}), 400
 
-        pdf_count = 0
-        image_count = 0
-        for f in files:
-            ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
-            if ext == 'pdf':
-                pdf_count += 1
-            elif ext in ['png', 'jpg', 'jpeg', 'gif', 'bmp']:
-                image_count += 1
-
-        if pdf_count > 3:
-            return jsonify({'error': 'Máximo 3 archivos PDF'}), 400
-        if image_count > 10:
-            return jsonify({'error': 'Máximo 10 imágenes'}), 400
-        if len(files) > 10:
-            return jsonify({'error': 'Máximo 10 archivos en total'}), 400
-
         pages_str = request.form.get('pages', '')
         selected_pages = []
         if pages_str:
@@ -227,6 +168,7 @@ def upload_files():
             filename = secure_filename(original_filename)
             ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
             file_bytes = file.read()
+            print(f"[INFO] Procesando: {original_filename} ({len(file_bytes)} bytes)")
 
             if ext == 'pdf':
                 try:
@@ -237,39 +179,47 @@ def upload_files():
                     total_pages = 1
 
                 if not selected_pages:
-                    selected_pages = [1]
+                    selected_pages = list(range(1, total_pages + 1))  # Todas las páginas
                 valid_pages = [p for p in selected_pages if 1 <= p <= total_pages]
                 if not valid_pages:
                     return jsonify({'error': f'No hay páginas válidas (PDF tiene {total_pages} páginas)'}), 400
-                if len(valid_pages) > 3:
-                    valid_pages = valid_pages[:3]
 
+                # Procesar todas las páginas seleccionadas (sin límite)
                 for page_num in valid_pages:
                     try:
                         img = convert_from_bytes(file_bytes, dpi=150, first_page=page_num, last_page=page_num)[0]
                         img_bytes = io.BytesIO()
                         img.save(img_bytes, format='JPEG', quality=75)
                         img_bytes.seek(0)
-                        thumbnail, fen, error = process_image_to_fen_and_thumbnail(img_bytes.getvalue())
-                        if fen and thumbnail:
-                            results.append({
-                                'original_filename': original_filename,
-                                'file': filename,
-                                'page': page_num,
-                                'fen': fen,
-                                'thumbnail': thumbnail,
-                                'error': None
-                            })
-                        else:
-                            results.append({
-                                'original_filename': original_filename,
-                                'file': filename,
-                                'page': page_num,
-                                'fen': None,
-                                'thumbnail': thumbnail if thumbnail else None,
-                                'error': error or 'No se pudo obtener FEN'
-                            })
+
+                        board_images = detect_boards_in_image(img_bytes.getvalue(), use_grid=True)
+
+                        for board_idx, board_img in enumerate(board_images):
+                            _, board_bytes_cv = cv2.imencode('.jpg', board_img)
+                            board_bytes_cv = board_bytes_cv.tobytes()
+                            thumbnail, fen, error = process_image_to_fen_and_thumbnail(board_bytes_cv)
+                            if fen and thumbnail:
+                                results.append({
+                                    'original_filename': original_filename,
+                                    'file': filename,
+                                    'page': page_num,
+                                    'board': board_idx + 1,
+                                    'fen': fen,
+                                    'thumbnail': thumbnail,
+                                    'error': None
+                                })
+                            else:
+                                results.append({
+                                    'original_filename': original_filename,
+                                    'file': filename,
+                                    'page': page_num,
+                                    'board': board_idx + 1,
+                                    'fen': None,
+                                    'thumbnail': thumbnail if thumbnail else None,
+                                    'error': error or 'No se pudo obtener FEN'
+                                })
                     except Exception as e:
+                        print(f"[ERROR] Página {page_num}: {traceback.format_exc()}")
                         results.append({'original_filename': original_filename, 'file': filename, 'page': page_num, 'error': f'Error en página {page_num}: {str(e)[:80]}'})
             elif ext in ['png', 'jpg', 'jpeg', 'gif', 'bmp']:
                 thumbnail, fen, error = process_image_to_fen_and_thumbnail(file_bytes)
