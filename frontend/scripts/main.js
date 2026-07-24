@@ -39,26 +39,30 @@
     const autoResults = document.getElementById('autoResults');
     const processGalleryBtn = document.getElementById('processGalleryBtn');
 
-    // Almacén de datos (acumulativo)
     let autoData = [];
-    let autoFens = new Set(); // Usamos Set para deduplicación eficiente
+    let autoFens = new Set(); // Para deduplicación
+
+    // ---------- FUNCIÓN PARA ALTERNAR TURNO ----------
+    function toggleTurn(fen) {
+        const parts = fen.split(' ');
+        if (parts.length >= 3) {
+            parts[1] = parts[1] === 'w' ? 'b' : 'w';
+            return parts.join(' ');
+        }
+        return fen;
+    }
 
     // ---------- FUNCIÓN PARA AÑADIR RESULTADOS (CON DEDUPLICACIÓN) ----------
     function addResultsToAutoData(newResults) {
-        if (!newResults || !newResults.length) return;
+        if (!newResults || !newResults.length) return 0;
         let addedCount = 0;
         for (const item of newResults) {
             const fen = item.fen || null;
-            // Si tiene FEN y no está en el Set, lo añadimos
             if (fen && !autoFens.has(fen)) {
                 autoFens.add(fen);
                 autoData.push(item);
                 addedCount++;
-            }
-            // Si no tiene FEN, lo añadimos igual (para mostrar errores)
-            else if (!fen) {
-                // Solo añadir si no es un duplicado de un error previo
-                // Para simplificar, añadimos todos los errores (no se deduplican)
+            } else if (!fen) {
                 autoData.push(item);
                 addedCount++;
             }
@@ -67,7 +71,7 @@
         return addedCount;
     }
 
-    // ---------- FUNCIÓN PARA RENDERIZAR LA TABLA (CON BOTÓN ✂️) ----------
+    // ---------- FUNCIÓN PARA RENDERIZAR LA TABLA (CON BOTÓN DE TURNO Y TIJERA) ----------
     function renderAutoResults() {
         if (!autoData || autoData.length === 0) {
             autoResults.innerHTML = '<p>No hay resultados. Sube imágenes o procesa recortes desde la galería.</p>';
@@ -81,7 +85,8 @@
                 <th>Página</th>
                 <th>FEN</th>
                 <th>Miniatura</th>
-                <th style="width:60px;">Acción</th>
+                <th style="width:40px;">Turno</th>
+                <th style="width:40px;">Acción</th>
             </tr></thead><tbody>`;
 
         for (let i = 0; i < autoData.length; i++) {
@@ -89,13 +94,16 @@
             const fen = item.fen || 'Error';
             const isError = !item.fen;
             const thumb = item.thumbnail ? `<img src="data:image/jpeg;base64,${item.thumbnail}" class="thumbnail-img">` : '-';
-            // Generar un ID único para la fila
             const rowId = `auto-row-${i}`;
+
             html += `<tr id="${rowId}" data-index="${i}">
                 <td>${item.original_filename || item.file}</td>
                 <td>${item.page || '-'}</td>
-                <td class="${isError ? 'error' : 'success'} fen-cell">${fen}</td>
+                <td class="${isError ? 'error' : 'success'} fen-cell" id="fen-cell-${i}">${fen}</td>
                 <td>${thumb}</td>
+                <td style="text-align:center;">
+                    ${!isError ? `<button class="btn-toggle-turn" data-index="${i}" data-fen="${fen}" title="Alternar turno (blancas/negras)" style="background:transparent; border:none; cursor:pointer; font-size:1.1rem;">🔄</button>` : '-'}
+                </td>
                 <td style="text-align:center;">
                     ${!isError ? `<button class="btn-copy-fen" data-fen="${fen}" data-index="${i}" title="Copiar FEN y eliminar fila" style="background:transparent; border:none; cursor:pointer; font-size:1.2rem;">✂️</button>` : '-'}
                 </td>
@@ -105,28 +113,44 @@
         html += '</tbody></table>';
         autoResults.innerHTML = html;
 
-        // ---------- EVENTOS PARA LOS BOTONES ✂️ ----------
+        // ---------- EVENTOS PARA BOTONES DE ALTERNAR TURNO ----------
+        document.querySelectorAll('.btn-toggle-turn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const index = parseInt(this.getAttribute('data-index'));
+                const currentFen = this.getAttribute('data-fen');
+                if (isNaN(index) || !currentFen) return;
+
+                const newFen = toggleTurn(currentFen);
+                // Actualizar el FEN en el array autoData
+                autoData[index].fen = newFen;
+                // Actualizar la celda de FEN
+                const fenCell = document.getElementById(`fen-cell-${index}`);
+                if (fenCell) fenCell.textContent = newFen;
+                // Actualizar el atributo data-fen del botón turno y del botón tijera
+                this.setAttribute('data-fen', newFen);
+                const copyBtn = document.querySelector(`.btn-copy-fen[data-index="${index}"]`);
+                if (copyBtn) copyBtn.setAttribute('data-fen', newFen);
+                // Actualizar el Set de FEN (para deduplicación) - eliminar el antiguo, añadir el nuevo
+                if (currentFen) autoFens.delete(currentFen);
+                autoFens.add(newFen);
+                window.showNotification('Turno actualizado: ' + (newFen.includes(' w ') ? 'Blancas' : 'Negras'));
+            });
+        });
+
+        // ---------- EVENTOS PARA BOTONES ✂️ ----------
         document.querySelectorAll('.btn-copy-fen').forEach(btn => {
             btn.addEventListener('click', function() {
                 const fen = this.getAttribute('data-fen');
                 const index = parseInt(this.getAttribute('data-index'));
                 if (!fen || isNaN(index)) return;
 
-                // Copiar al portapapeles
                 navigator.clipboard.writeText(fen).then(() => {
-                    // Eliminar la fila del DOM y del array autoData
-                    const row = document.getElementById(`auto-row-${index}`);
-                    if (row) {
-                        row.style.transition = 'all 0.3s';
-                        row.style.opacity = '0';
-                        setTimeout(() => {
-                            // Eliminar del array autoData
-                            autoData.splice(index, 1);
-                            // Reconstruir la tabla (actualizar índices)
-                            renderAutoResults();
-                            updateExportButtonState();
-                        }, 300);
-                    }
+                    // Eliminar del array y del Set
+                    const removedFen = autoData[index].fen;
+                    if (removedFen) autoFens.delete(removedFen);
+                    autoData.splice(index, 1);
+                    renderAutoResults();
+                    updateExportButtonState();
                     window.showNotification('FEN copiado y eliminado');
                 }).catch(err => {
                     window.showNotification('Error al copiar: ' + err.message, true);
