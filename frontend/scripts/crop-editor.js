@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (SIN DESCARGA AUTOMÁTICA)
+// MÓDULO 2: RECORTE MANUAL (CON CÍRCULO DE TURNO Y SELECTIVIDAD)
 // ============================================
 (function() {
     'use strict';
@@ -30,6 +30,8 @@
     const cropGallery = document.getElementById('cropGallery');
     const processAllBtn = document.getElementById('cropProcessAllBtn');
     const cropDownloadAllBtn = document.getElementById('cropDownloadAllBtn');
+    const cropDeleteSelectedBtn = document.getElementById('cropDeleteSelectedBtn');
+    const cropToggleCircle = document.getElementById('cropToggleCircle');
 
     let cropImages = [];
     let cropIndex = 0;
@@ -43,6 +45,7 @@
     let startX, startY;
     let cropBoxX = 0, cropBoxY = 0, cropBoxW = 200, cropBoxH = 200;
     let cropZoomActive = false;
+    let includeCircleInDownload = true; // por defecto activado
 
     // ---------- INICIALIZAR CAJA DE RECORTE ----------
     function initCropBox() {
@@ -202,12 +205,39 @@
         return canvas.toDataURL('image/jpeg', 0.92);
     }
 
-    // ---------- GUARDAR RECORTE (SIN DESCARGA AUTOMÁTICA) ----------
+    // ---------- DIBUJAR CÍRCULO DE TURNO ----------
+    function addTurnCircle(dataUrl, turno, callback) {
+        if (!turno || !includeCircleInDownload) {
+            callback(dataUrl);
+            return;
+        }
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            const circleSize = Math.max(20, Math.min(40, Math.floor(img.width / 15)));
+            const padding = 10;
+            const x = img.width - circleSize - padding;
+            const y = img.height - circleSize - padding;
+            ctx.beginPath();
+            ctx.arc(x + circleSize/2, y + circleSize/2, circleSize/2, 0, 2 * Math.PI);
+            ctx.fillStyle = turno === 'white' ? '#ffffff' : '#000000';
+            ctx.fill();
+            ctx.strokeStyle = '#333333';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            callback(canvas.toDataURL('image/jpeg', 0.92));
+        };
+        img.src = dataUrl;
+    }
+
+    // ---------- GUARDAR RECORTE ----------
     cropSaveBtn.addEventListener('click', function() {
         const dataUrl = getCropDataUrl();
         if (!dataUrl) { window.showNotification('Error al recortar', true); return; }
-        
-        // Guardar en galería sin turno
         window.cropBoards.push({ dataUrl, turno: null });
         renderCropGallery();
         window.showNotification(`Recorte guardado. Asigna turno en la galería.`);
@@ -247,7 +277,7 @@
         window.showNotification('Plantilla aplicada');
     });
 
-    // ---------- PROCESAR TODAS LAS IMÁGENES (SIN DESCARGA AUTOMÁTICA) ----------
+    // ---------- PROCESAR TODAS LAS IMÁGENES ----------
     processAllBtn.addEventListener('click', function() {
         if (cropImages.length === 0) {
             window.showNotification('Primero carga imágenes.', true);
@@ -257,7 +287,6 @@
             window.showNotification('Ajusta el recorte en la imagen actual.', true);
             return;
         }
-        // Guardar el recorte actual como plantilla si no existe
         if (!cropTemplate) {
             cropTemplate = {
                 x: cropBoxX / cropOriginalWidth,
@@ -267,7 +296,6 @@
             };
             cropTemplateApplyBtn.disabled = false;
         }
-        // Procesar todas las imágenes con la plantilla
         let processed = 0;
         const total = cropImages.length;
         window.showNotification(`Procesando ${total} imágenes...`);
@@ -282,7 +310,6 @@
             reader.onload = function(e) {
                 const img = new Image();
                 img.onload = function() {
-                    // Aplicar la plantilla a esta imagen
                     const w = img.width;
                     const h = img.height;
                     const cropX = Math.round(cropTemplate.x * w);
@@ -306,7 +333,7 @@
         processNext(0);
     });
 
-    // ---------- RENDERIZAR GALERÍA (CON BOTÓN DE DESCARGA INDIVIDUAL) ----------
+    // ---------- RENDERIZAR GALERÍA ----------
     function renderCropGallery() {
         cropGalleryGrid.innerHTML = '';
         cropCount.textContent = window.cropBoards.length;
@@ -335,7 +362,6 @@
                 renderCropGallery();
             });
 
-            // Botón de descarga individual
             const downloadBtn = document.createElement('button');
             downloadBtn.className = 'btn btn-sm btn-success';
             downloadBtn.innerHTML = '<i class="fas fa-download"></i>';
@@ -343,10 +369,12 @@
             downloadBtn.style.marginLeft = '5px';
             downloadBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                const link = document.createElement('a');
-                link.href = board.dataUrl;
-                link.download = `tablero_${idx+1}${board.turno ? '_'+board.turno : ''}.jpg`;
-                link.click();
+                addTurnCircle(board.dataUrl, board.turno, (finalUrl) => {
+                    const link = document.createElement('a');
+                    link.href = finalUrl;
+                    link.download = `tablero_${idx+1}${board.turno ? '_'+board.turno : ''}.jpg`;
+                    link.click();
+                });
             });
 
             info.appendChild(badge);
@@ -396,6 +424,37 @@
         renderCropGallery();
         window.showNotification('Negras asignadas a seleccionados, Blancas al resto');
     });
+
+    // ---------- ELIMINAR SELECCIONADAS ----------
+    cropDeleteSelectedBtn.addEventListener('click', function() {
+        if (cropSelected.size === 0) {
+            window.showNotification('No hay imágenes seleccionadas.', true);
+            return;
+        }
+        if (confirm(`¿Eliminar ${cropSelected.size} imágenes seleccionadas?`)) {
+            const newBoards = [];
+            const newSelected = new Set();
+            const oldIndices = Array.from(cropSelected).sort((a,b)=>a-b);
+            let shift = 0;
+            window.cropBoards.forEach((board, idx) => {
+                if (cropSelected.has(idx)) {
+                    shift++;
+                } else {
+                    const newIdx = idx - shift;
+                    newBoards.push(board);
+                    if (cropSelected.has(idx)) {
+                        newSelected.add(newIdx);
+                    }
+                }
+            });
+            window.cropBoards = newBoards;
+            cropSelected = newSelected;
+            renderCropGallery();
+            window.showNotification('Imágenes eliminadas.');
+        }
+    });
+
+    // ---------- ELIMINAR TODAS ----------
     cropClearAll.addEventListener('click', function() {
         if (confirm('¿Eliminar todos los recortes?')) {
             window.cropBoards = [];
@@ -405,7 +464,7 @@
         }
     });
 
-    // ---------- DESCARGAR TODAS LAS IMÁGENES (RESPETANDO TURNOS) ----------
+    // ---------- DESCARGAR TODAS ----------
     cropDownloadAllBtn.addEventListener('click', function() {
         if (window.cropBoards.length === 0) {
             window.showNotification('No hay recortes para descargar', true);
@@ -413,13 +472,21 @@
         }
         window.cropBoards.forEach((board, idx) => {
             setTimeout(() => {
-                const link = document.createElement('a');
-                link.href = board.dataUrl;
-                link.download = `tablero_${idx+1}${board.turno ? '_'+board.turno : ''}.jpg`;
-                link.click();
+                addTurnCircle(board.dataUrl, board.turno, (finalUrl) => {
+                    const link = document.createElement('a');
+                    link.href = finalUrl;
+                    link.download = `tablero_${idx+1}${board.turno ? '_'+board.turno : ''}.jpg`;
+                    link.click();
+                });
             }, idx * 200);
         });
         window.showNotification('Descargando todas las imágenes...');
+    });
+
+    // ---------- TOGGLE CÍRCULO ----------
+    cropToggleCircle.addEventListener('change', function() {
+        includeCircleInDownload = this.checked;
+        window.showNotification(includeCircleInDownload ? 'Círculo de turno activado' : 'Círculo de turno desactivado');
     });
 
     // Exponer funciones para otros módulos
