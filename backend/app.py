@@ -1,5 +1,6 @@
 import os
 import tempfile
+import requests
 import base64
 import cv2
 import numpy as np
@@ -12,7 +13,6 @@ import traceback
 import shutil
 from datetime import datetime, timezone
 import re
-import chess_diagram_to_fen  # ← NUEVA DEPENDENCIA LOCAL
 
 app = Flask(__name__)
 
@@ -33,7 +33,7 @@ def clean_fen(raw_fen):
     return None
 
 def detect_board(image):
-    """Detecta el tablero o devuelve recorte central."""
+    """Detecta el tablero de ajedrez en la imagen (recorte)."""
     h, w = image.shape[:2]
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
@@ -105,22 +105,38 @@ def process_image_to_fen_and_thumbnail(image_bytes):
         _, buffer = cv2.imencode('.jpg', canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
         thumbnail_b64 = base64.b64encode(buffer).decode('utf-8')
 
-        # --- Obtener FEN con chess_diagram_to_fen (local) ---
-        board_rgb = cv2.cvtColor(board_img, cv2.COLOR_BGR2RGB)
-        pil_img = Image.fromarray(board_rgb)
-        result = chess_diagram_to_fen.get_fen(
-            img=pil_img,
-            game="chess",
-            auto_rotate_image=True,
-            auto_rotate_board=True
-        )
+        # --- Enviar a Chessvision.ai ---
+        _, board_bytes = cv2.imencode('.jpg', board_img)
+        board_bytes = board_bytes.tobytes()
+
+        img_pil = Image.open(io.BytesIO(board_bytes))
+        if img_pil.size[0] > 1000 or img_pil.size[1] > 1000:
+            img_pil.thumbnail((1000, 1000))
+            buffer_pil = io.BytesIO()
+            img_pil.save(buffer_pil, format='JPEG', quality=75)
+            board_bytes = buffer_pil.getvalue()
+
+        encoded_string = base64.b64encode(board_bytes).decode('utf-8')
+        payload = {
+            "board_orientation": "predict",
+            "cropped": False,
+            "current_player": "white",
+            "image": f"data:image/jpeg;base64,{encoded_string}",
+            "predict_turn": True
+        }
+        response = requests.post('http://app.chessvision.ai/predict', json=payload, timeout=15)
         fen = None
-        if result and result.fen:
-            fen = clean_fen(result.fen)
-            if not fen:
-                return thumbnail_b64, None, "FEN inválido"
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('success'):
+                raw_fen = data.get('result')
+                fen = clean_fen(raw_fen)
+                if not fen:
+                    return thumbnail_b64, None, f"FEN inválido: {raw_fen}"
+            else:
+                return thumbnail_b64, None, f"Chessvision.ai falló: {data.get('message', '')}"
         else:
-            return thumbnail_b64, None, "No se detectó tablero"
+            return thumbnail_b64, None, f"Chessvision.ai error HTTP {response.status_code}"
 
         return thumbnail_b64, fen, None
     except Exception as e:
