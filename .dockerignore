@@ -1,0 +1,46 @@
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+
+# Entornos virtuales
+env
+venv
+ENV
+.venv
+
+# Archivos temporales
+*.tmp
+*.log
+*.pid
+*.swp
+*.swo
+.DS_Store
+
+# Archivos de proyecto
+*.zip
+*.tar.gz
+*.pgn
+*.pdf
+*.jpg
+*.png
+*.jpeg
+
+# Archivos de desarrollo
+.git
+.gitignore
+README.md
+Dockerfile
+.dockerignore
+
+# Archivos de secretos
+.env
+*.key
+*.pem
