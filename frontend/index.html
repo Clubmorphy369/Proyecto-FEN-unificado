@@ -96,16 +96,24 @@
                 <i class="fas fa-images"></i> Galería de recortes
                 <span id="cropCount" class="badge" style="margin-left:10px; background:#3498db; color:white; padding:2px 10px; border-radius:20px;">0</span>
             </div>
-            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">
+            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; align-items:center;">
                 <button id="cropSelectAll" class="btn btn-sm">Seleccionar todo</button>
                 <button id="cropDeselectAll" class="btn btn-sm">Deseleccionar</button>
+                <button id="cropDeleteSelectedBtn" class="btn btn-sm btn-danger">
+                    <i class="fas fa-trash"></i> Eliminar seleccionados
+                </button>
+                <button id="cropClearAll" class="btn btn-sm btn-danger">
+                    <i class="fas fa-trash"></i> Eliminar todos
+                </button>
                 <button id="cropBatchWhite" class="btn btn-sm btn-success"><i class="fas fa-circle" style="color:white; text-shadow:0 0 1px black;"></i> Blancas (seleccionados)</button>
                 <button id="cropBatchBlack" class="btn btn-sm btn-dark"><i class="fas fa-circle" style="color:black;"></i> Negras (seleccionados)</button>
-                <button id="cropClearAll" class="btn btn-sm btn-danger"><i class="fas fa-trash"></i> Eliminar todos</button>
-                <!-- NUEVO BOTÓN: DESCARGAR TODAS -->
                 <button id="cropDownloadAllBtn" class="btn btn-sm btn-success">
                     <i class="fas fa-download"></i> Descargar todas
                 </button>
+                <div style="display:flex; align-items:center; gap:6px; margin-left:10px;">
+                    <input type="checkbox" id="cropToggleCircle" checked>
+                    <label for="cropToggleCircle" style="font-size:0.9rem;">Incluir círculo de turno</label>
+                </div>
             </div>
             <div id="cropGalleryGrid" class="gallery"></div>
         </div>
