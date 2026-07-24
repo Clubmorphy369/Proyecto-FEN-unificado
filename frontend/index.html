@@ -37,8 +37,12 @@
                 <label>Páginas (PDF, separadas por comas, ej: 1,3,5):</label>
                 <input type="text" id="autoPages" value="1" placeholder="1,3,5">
             </div>
-            <button id="autoProcessBtn" class="btn"><i class="fas fa-play"></i> Procesar</button>
-            <button id="autoExportPgnBtn" class="btn btn-success" disabled><i class="fas fa-download"></i> Exportar PGN</button>
+            <div style="display:flex; flex-wrap:wrap; gap:10px;">
+                <button id="autoProcessBtn" class="btn"><i class="fas fa-play"></i> Procesar</button>
+                <button id="autoExportPgnBtn" class="btn btn-success" disabled><i class="fas fa-download"></i> Exportar PGN</button>
+                <!-- NUEVO BOTÓN: Procesar recortes desde galería -->
+                <button id="processGalleryBtn" class="btn btn-warning"><i class="fas fa-images"></i> Procesar recortes desde galería</button>
+            </div>
             <div id="autoStatus" style="margin-top:10px; font-weight:500;"></div>
         </div>
         <div id="autoResults" class="table-wrapper"></div>
