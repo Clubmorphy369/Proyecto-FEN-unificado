@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL
+// MÓDULO 2: RECORTE MANUAL (MEJORADO)
 // ============================================
 (function() {
     'use strict';
@@ -29,9 +29,16 @@
     const cropClearAll = document.getElementById('cropClearAll');
     const cropGallery = document.getElementById('cropGallery');
 
+    // NUEVO BOTÓN
+    const processAllBtn = document.createElement('button');
+    processAllBtn.id = 'cropProcessAllBtn';
+    processAllBtn.className = 'btn btn-success';
+    processAllBtn.innerHTML = '<i class="fas fa-bolt"></i> Procesar todas las imágenes automáticamente';
+    cropEditor.querySelector('.card-title').after(processAllBtn);
+
     let cropImages = [];
     let cropIndex = 0;
-    window.cropBoards = []; // { dataUrl, turno: 'white'|'black'|null }
+    window.cropBoards = [];
     let cropSelected = new Set();
     let cropTemplate = null;
     let cropOriginalImage = null;
@@ -42,7 +49,6 @@
     let cropBoxX = 0, cropBoxY = 0, cropBoxW = 200, cropBoxH = 200;
     let cropZoomActive = false;
 
-    // Inicializar la caja de recorte
     function initCropBox() {
         cropBox = document.querySelector('.crop-box');
         if (!cropBox) return;
@@ -113,7 +119,6 @@
         cropBox.querySelectorAll('.resize-handle').forEach(h => h.removeEventListener('mousedown', startResize));
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', stopInteraction);
-
         cropBox.addEventListener('mousedown', startDrag);
         cropBox.querySelectorAll('.resize-handle').forEach(h => h.addEventListener('mousedown', startResize));
         document.addEventListener('mousemove', onMouseMove);
@@ -237,6 +242,66 @@
         window.showNotification('Plantilla aplicada');
     });
 
+    // NUEVO: Procesar todas las imágenes automáticamente
+    processAllBtn.addEventListener('click', function() {
+        if (cropImages.length === 0) {
+            window.showNotification('Primero carga imágenes.', true);
+            return;
+        }
+        if (!cropOriginalImage) {
+            window.showNotification('Ajusta el recorte en la imagen actual.', true);
+            return;
+        }
+        // Guardar el recorte actual como plantilla si no existe
+        if (!cropTemplate) {
+            cropTemplate = {
+                x: cropBoxX / cropOriginalWidth,
+                y: cropBoxY / cropOriginalHeight,
+                w: cropBoxW / cropOriginalWidth,
+                h: cropBoxH / cropOriginalHeight
+            };
+            cropTemplateApplyBtn.disabled = false;
+        }
+        // Procesar todas las imágenes con la plantilla
+        let processed = 0;
+        const total = cropImages.length;
+        window.showNotification(`Procesando ${total} imágenes...`);
+
+        // Función recursiva para procesar una por una
+        function processNext(idx) {
+            if (idx >= total) {
+                window.showNotification(`¡Procesadas ${total} imágenes!`);
+                renderCropGallery();
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    // Aplicar la plantilla a esta imagen
+                    const w = img.width;
+                    const h = img.height;
+                    const cropX = Math.round(cropTemplate.x * w);
+                    const cropY = Math.round(cropTemplate.y * h);
+                    const cropW = Math.max(10, Math.round(cropTemplate.w * w));
+                    const cropH = Math.max(10, Math.round(cropTemplate.h * h));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = cropW;
+                    canvas.height = cropH;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                    window.cropBoards.push({ dataUrl, turno: null });
+                    processed++;
+                    processNext(idx + 1);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(cropImages[idx]);
+        }
+        processNext(0);
+    });
+
     function renderCropGallery() {
         cropGalleryGrid.innerHTML = '';
         cropCount.textContent = window.cropBoards.length;
@@ -275,7 +340,6 @@
                 idxTurno = (idxTurno + 1) % turnos.length;
                 board.turno = turnos[idxTurno];
                 renderCropGallery();
-                // Actualizar vista previa PDF si está disponible
                 if (window.updatePdfPreview) window.updatePdfPreview();
             });
 
@@ -283,7 +347,6 @@
             div.appendChild(info);
             cropGalleryGrid.appendChild(div);
         });
-        // Notificar al módulo PDF que hay cambios
         if (window.updatePdfPreview) window.updatePdfPreview();
     }
 
@@ -320,10 +383,8 @@
         }
     });
 
-    // Exponer funciones para otros módulos
     window.renderCropGallery = renderCropGallery;
     window.getCropBoards = () => window.cropBoards;
 
-    // Inicializar
     initCropBox();
 })();
