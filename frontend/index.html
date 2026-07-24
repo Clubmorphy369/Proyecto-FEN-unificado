@@ -55,6 +55,7 @@
             <div id="cropCounter" style="margin-top:8px; font-weight:500;"></div>
         </div>
 
+        <!-- Editor de recorte -->
         <div id="cropEditor" class="card" style="display:none;">
             <div class="card-title"><i class="fas fa-crop-alt"></i> Ajustar recorte</div>
             <div class="precision-panel">
@@ -74,15 +75,22 @@
                     <div class="resize-handle resize-se"></div>
                 </div>
             </div>
-            <div style="display:flex; flex-wrap:wrap; gap:10px; margin:10px 0;">
-                <button id="cropSaveBtn" class="btn btn-success"><i class="fas fa-save"></i> Guardar recorte</button>
+            <!-- BOTONES DE ACCIÓN -->
+            <div style="display:flex; flex-wrap:wrap; gap:12px; margin:15px 0; padding:12px; background:#f0f4f8; border-radius:8px;">
+                <button id="cropSaveBtn" class="btn btn-success" style="font-size:1.1rem; padding:12px 24px;">
+                    <i class="fas fa-save"></i> Guardar recorte actual
+                </button>
                 <button id="cropPrevBtn" class="btn" disabled><i class="fas fa-chevron-left"></i> Anterior</button>
                 <button id="cropNextBtn" class="btn" disabled>Siguiente <i class="fas fa-chevron-right"></i></button>
                 <button id="cropTemplateSaveBtn" class="btn btn-outline"><i class="fas fa-clone"></i> Guardar plantilla</button>
                 <button id="cropTemplateApplyBtn" class="btn btn-outline" disabled>Aplicar plantilla</button>
             </div>
+            <div style="margin-top:10px;">
+                <button id="cropProcessAllBtn" class="btn btn-success"><i class="fas fa-bolt"></i> Procesar todas las imágenes automáticamente</button>
+            </div>
         </div>
 
+        <!-- Galería -->
         <div id="cropGallery" class="card" style="display:none;">
             <div class="card-title">
                 <i class="fas fa-images"></i> Galería de recortes
@@ -94,6 +102,10 @@
                 <button id="cropBatchWhite" class="btn btn-sm btn-success"><i class="fas fa-circle" style="color:white; text-shadow:0 0 1px black;"></i> Blancas (seleccionados)</button>
                 <button id="cropBatchBlack" class="btn btn-sm btn-dark"><i class="fas fa-circle" style="color:black;"></i> Negras (seleccionados)</button>
                 <button id="cropClearAll" class="btn btn-sm btn-danger"><i class="fas fa-trash"></i> Eliminar todos</button>
+                <!-- NUEVO BOTÓN: DESCARGAR TODAS -->
+                <button id="cropDownloadAllBtn" class="btn btn-sm btn-success">
+                    <i class="fas fa-download"></i> Descargar todas
+                </button>
             </div>
             <div id="cropGalleryGrid" class="gallery"></div>
         </div>
