@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (REGLA AL 0.5%, SOPORTE PDF)
+// MÓDULO 2: RECORTE MANUAL (REGLA VERDE FINA 0.5%, SIN FONDO OSCURO, COMPLETO)
 // ============================================
 (function() {
     'use strict';
@@ -86,7 +86,7 @@
         return { width: rect.width, height: rect.height };
     }
 
-    // ============ CUADRÍCULA (REGLA VERDE FINA AL 0.5%) ============
+    // ============ CUADRÍCULA (REGLA VERDE FINA, SIN FONDO OSCURO) ============
     function updateGrid() {
         if (!gridOverlay || !gridToggle) return;
         const visible = gridToggle.checked;
@@ -102,25 +102,24 @@
         gridOverlay.style.width = size.width + 'px';
         gridOverlay.style.height = size.height + 'px';
 
-        // Líneas cada 0.5% del ancho/alto, verde lima brillante
+        // Solo líneas verdes finas, fondo totalmente transparente
         gridOverlay.style.backgroundImage = `
-            linear-gradient(to right, rgba(0, 255, 0, 0.9) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(0, 255, 0, 0.9) 1px, transparent 1px)
+            linear-gradient(to right, rgba(0, 255, 0, 0.8) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(0, 255, 0, 0.8) 1px, transparent 1px)
         `;
-        gridOverlay.style.backgroundSize = '0.5% 0.5%';   // ← mucho más fino
+        gridOverlay.style.backgroundSize = '0.5% 0.5%';   // muy fino
         gridOverlay.style.backgroundPosition = '0 0';
-        gridOverlay.style.border = '2px solid rgba(0,255,0,0.7)';
+        gridOverlay.style.border = 'none';                // sin borde
         gridOverlay.style.backgroundColor = 'transparent';
-        gridOverlay.style.boxShadow = 'none';
+        gridOverlay.style.boxShadow = 'none';             // sin sombra
     }
 
-    // ============ SNAP A CUADRÍCULA (tamaño de celda también al 0.5%) ============
+    // ============ SNAP A CUADRÍCULA (0.5%) ============
     function snapToGrid(value, gridSize) {
         return Math.round(value / gridSize) * gridSize;
     }
 
     function getGridSize() {
-        // Celda = 0.5% del lado menor de la imagen
         return Math.round(Math.min(cropOriginalWidth, cropOriginalHeight) * 0.005);
     }
 
@@ -171,7 +170,7 @@
             w = lastBox.w;
             h = lastBox.h;
         } else {
-            // Por defecto: celda 2x3 con margen estándar
+            // Tamaño por defecto: celda 2x3 con margen estándar
             const cols = 2, rows = 3;
             const cellW = Math.floor(cropOriginalWidth / cols);
             const cellH = Math.floor(cropOriginalHeight / rows);
@@ -380,6 +379,7 @@
         cropEditor.style.display = 'block';
         clearCropBoxes();
         if (pdfControls) pdfControls.style.display = 'none';
+        cropSaveBtn.style.display = 'inline-flex'; // mostrar botón para imágenes sueltas
         loadCropImage();
     });
 
@@ -461,6 +461,7 @@
         cropImages = [];  // limpiamos imágenes sueltas
         cropEditor.style.display = 'block';
         if (pdfControls) pdfControls.style.display = 'flex';
+        cropSaveBtn.style.display = 'none';   // OCULTAR botón "Guardar recorte" en modo PDF
         loadPdfPage(0);
     };
 
@@ -519,31 +520,36 @@
     // ============ EVENTOS DE GALERÍA ============
     cropSelectAll.addEventListener('click', () => { for (let i=0; i<window.cropBoards.length; i++) cropSelected.add(i); renderCropGallery(); });
     cropDeselectAll.addEventListener('click', () => { cropSelected.clear(); renderCropGallery(); });
-    cropBatchWhite.addEventListener('click', () => { for (let i=0; i<window.cropBoards.length; i++) { if (cropSelected.has(i)) window.cropBoards[i].turno='white'; else window.cropBoards[i].turno='black'; } renderCropGallery(); });
-    cropBatchBlack.addEventListener('click', () => { for (let i=0; i<window.cropBoards.length; i++) { if (cropSelected.has(i)) window.cropBoards[i].turno='black'; else window.cropBoards[i].turno='white'; } renderCropGallery(); });
-    cropDeleteSelectedBtn.addEventListener('click', () => { if (cropSelected.size===0) return; if (confirm(`¿Eliminar ${cropSelected.size} imágenes?`)) { const nb=[]; window.cropBoards.forEach((b,i)=>{ if(!cropSelected.has(i)) nb.push(b); }); window.cropBoards=nb; cropSelected.clear(); renderCropGallery(); } });
-    cropClearAll.addEventListener('click', () => { if (confirm('¿Eliminar todos?')) { window.cropBoards=[]; cropSelected.clear(); renderCropGallery(); } });
-    cropDownloadAllBtn.addEventListener('click', () => { if (window.cropBoards.length===0) return; window.cropBoards.forEach((b,i)=>setTimeout(()=>{ const a=document.createElement('a'); a.href=b.dataUrl; a.download=`tablero_${i+1}${b.turno?'_'+b.turno:''}.jpg`; a.click(); }, i*200)); });
+    cropBatchWhite.addEventListener('click', () => { for (let i=0; i<window.cropBoards.length; i++) { if (cropSelected.has(i)) window.cropBoards[i].turno='white'; else window.cropBoards[i].turno='black'; } renderCropGallery(); window.showNotification('Blancas asignadas a seleccionados, Negras al resto'); });
+    cropBatchBlack.addEventListener('click', () => { for (let i=0; i<window.cropBoards.length; i++) { if (cropSelected.has(i)) window.cropBoards[i].turno='black'; else window.cropBoards[i].turno='white'; } renderCropGallery(); window.showNotification('Negras asignadas a seleccionados, Blancas al resto'); });
+    cropDeleteSelectedBtn.addEventListener('click', () => { if (cropSelected.size===0) return; if (confirm(`¿Eliminar ${cropSelected.size} imágenes?`)) { const nb=[]; window.cropBoards.forEach((b,i)=>{ if(!cropSelected.has(i)) nb.push(b); }); window.cropBoards=nb; cropSelected.clear(); renderCropGallery(); window.showNotification('Imágenes eliminadas.'); } });
+    cropClearAll.addEventListener('click', () => { if (confirm('¿Eliminar todos?')) { window.cropBoards=[]; cropSelected.clear(); renderCropGallery(); window.showNotification('Todos los recortes eliminados.'); } });
+    cropDownloadAllBtn.addEventListener('click', () => { if (window.cropBoards.length===0) return; window.cropBoards.forEach((b,i)=>setTimeout(()=>{ const a=document.createElement('a'); a.href=b.dataUrl; a.download=`tablero_${i+1}${b.turno?'_'+b.turno:''}.jpg`; a.click(); }, i*200)); window.showNotification('Descargando todas...'); });
     cropToggleCircle.addEventListener('change', function() { includeCircleInDownload = this.checked; });
 
     window.renderCropGallery = renderCropGallery;
     window.getCropBoards = () => window.cropBoards;
 
-    // ============ PROCESAR TODAS LAS IMÁGENES (AHORA SOPORTA PDF) ============
+    // ============ PROCESAR TODAS LAS IMÁGENES (COMPORTAMIENTO MEJORADO) ============
     processAllBtn.addEventListener('click', function() {
         // ----- CASO PDF -----
         if (pdfPages.length > 0) {
             if (cropBoxes.length === 0) {
-                window.showNotification('No hay recuadros definidos. Ajusta al menos uno.', true);
+                window.showNotification('No hay recuadros. Ajusta al menos uno en la primera página.', true);
                 return;
             }
-            // Asegurar que el patrón actual está guardado
-            if (cropBoxes.length > 0) {
-                pagePatterns[currentPdfPage] = getCropPattern();
+            // Guardar el patrón actual antes de procesar
+            pagePatterns[currentPdfPage] = getCropPattern();
+
+            // Preguntar si queremos limpiar la galería existente
+            if (window.cropBoards.length > 0 && confirm('La galería ya contiene imágenes. ¿Deseas vaciarla antes de extraer los nuevos diagramas?')) {
+                window.cropBoards = [];
+                cropSelected.clear();
+                renderCropGallery();
             }
 
             let totalBoards = 0;
-            let pagesProcessed = 0;
+            let pagesDone = 0;
 
             for (let i = 0; i < pdfPages.length; i++) {
                 const pageImg = new Image();
@@ -551,30 +557,20 @@
                 pageImg.onload = (function(idx) {
                     return function() {
                         const pattern = pagePatterns[idx] || (idx === 0 ? getCropPattern() : null);
-                        if (!pattern || pattern.length === 0) {
-                            pagesProcessed++;
-                            if (pagesProcessed === pdfPages.length) {
-                                if (totalBoards === 0) {
-                                    window.showNotification('No se pudo extraer ningún tablero. Verifica los recuadros.', true);
-                                } else {
-                                    window.showNotification(`Se añadieron ${totalBoards} tableros a la galería.`);
-                                    renderCropGallery();
-                                }
-                            }
-                            return;
+                        if (pattern && pattern.length) {
+                            pattern.forEach(box => {
+                                const canvas = document.createElement('canvas');
+                                canvas.width = box.w;
+                                canvas.height = box.h;
+                                const ctx = canvas.getContext('2d');
+                                ctx.drawImage(pageImg, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+                                const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                                window.cropBoards.push({ dataUrl, turno: null });
+                                totalBoards++;
+                            });
                         }
-                        for (const box of pattern) {
-                            const canvas = document.createElement('canvas');
-                            canvas.width = box.w;
-                            canvas.height = box.h;
-                            const ctx = canvas.getContext('2d');
-                            ctx.drawImage(pageImg, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
-                            const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-                            window.cropBoards.push({ dataUrl, turno: null });
-                            totalBoards++;
-                        }
-                        pagesProcessed++;
-                        if (pagesProcessed === pdfPages.length) {
+                        pagesDone++;
+                        if (pagesDone === pdfPages.length) {
                             window.showNotification(`Se añadieron ${totalBoards} tableros a la galería.`);
                             renderCropGallery();
                         }
@@ -584,9 +580,9 @@
             return;
         }
 
-        // ----- CASO IMÁGENES SUELTAS -----
+        // ----- CASO IMÁGENES SUELTAS (sin cambios) -----
         if (cropImages.length === 0 || cropBoxes.length === 0) {
-            window.showNotification('Carga imágenes sueltas o usa un PDF con "Configurar recortes".', true);
+            window.showNotification('Carga imágenes sueltas o usa un PDF.', true);
             return;
         }
 
@@ -629,7 +625,7 @@
         processNext(0);
     });
 
-    // ============ GUARDAR RECORTE (imágenes sueltas) ============
+    // ============ GUARDAR RECORTE (solo para imágenes sueltas) ============
     cropSaveBtn.addEventListener('click', () => {
         if (cropBoxes.length===0) { window.showNotification('No hay recuadros.', true); return; }
         cropBoxes.forEach(obj => {
