@@ -14,6 +14,7 @@ import shutil
 from datetime import datetime, timezone
 import re
 import json
+import chess  # 👈 Importación añadida para validar FEN
 
 app = Flask(__name__)
 
@@ -337,6 +338,18 @@ def process_image_to_fen_and_thumbnail(image_bytes):
                 raw_fen = data.get('result')
                 fen = clean_fen(raw_fen)
                 if fen:
+                    # ✨ Validación del FEN con python-chess
+                    try:
+                        board = chess.Board(fen)
+                        fen = board.fen()  # Normaliza el FEN
+                    except ValueError:
+                        fen = None
+                        error = "FEN inválido según python-chess"
+                        return thumbnail_b64, fen, error
+                    except Exception as e:
+                        print(f"[WARN] Error validando FEN con python-chess: {e}")
+                        # Si falla la validación, usamos el FEN original como último recurso
+                        pass
                     return thumbnail_b64, fen, None
                 else:
                     return thumbnail_b64, None, f"FEN inválido: {raw_fen}"
