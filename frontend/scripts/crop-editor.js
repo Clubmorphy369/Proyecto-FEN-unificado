@@ -1,10 +1,10 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL CON SOPORTE PARA PDF (PATRÓN POR PÁGINA)
+// MÓDULO 2: RECORTE MANUAL CON SOPORTE PARA PDF (MEJORAS)
 // ============================================
 (function() {
     'use strict';
 
-    // ---------- DOM ELEMENTS ----------
+    // DOM ELEMENTS
     const cropFileInput = document.getElementById('cropFileInput');
     const cropLoadBtn = document.getElementById('cropLoadBtn');
     const cropCounter = document.getElementById('cropCounter');
@@ -29,7 +29,12 @@
     const cropDeleteSelectedBtn = document.getElementById('cropDeleteSelectedBtn');
     const cropToggleCircle = document.getElementById('cropToggleCircle');
 
-    // ---------- NUEVOS ELEMENTOS PARA PDF ----------
+    // NUEVOS BOTONES
+    const copySizeBtn = document.getElementById('copySizeBtn');
+    const pasteSizeToAllBtn = document.getElementById('pasteSizeToAllBtn');
+    const duplicateCropBoxBtn = document.getElementById('duplicateCropBoxBtn');
+
+    // PDF CONTROLS
     const pdfControls = document.getElementById('pdfControls');
     const pdfPrevPageBtn = document.getElementById('pdfPrevPageBtn');
     const pdfNextPageBtn = document.getElementById('pdfNextPageBtn');
@@ -37,7 +42,7 @@
     const pdfSavePatternBtn = document.getElementById('pdfSavePatternBtn');
     const pdfPageCounter = document.getElementById('pdfPageCounter');
 
-    // ---------- VARIABLES GLOBALES ----------
+    // VARIABLES
     let cropImages = [];
     let cropIndex = 0;
     window.cropBoards = [];
@@ -48,11 +53,14 @@
     let cropZoomActive = false;
     let includeCircleInDownload = true;
 
-    // Variables para múltiples recuadros
+    // Variables para recuadros
     let cropBoxes = [];
     let activeCropIndex = -1;
     let isDragging = false, isResizing = false, resizeDir = null;
     let startX, startY;
+
+    // Variables para copiar tamaño
+    let copiedSize = { w: 0, h: 0 };
 
     // Variables para PDF
     let pdfPages = [];
@@ -71,8 +79,6 @@
             container.style.height = '100%';
             container.style.pointerEvents = 'none';
             container.style.zIndex = '5';
-        } else {
-            console.error('No se encontró cropBoxesContainer en el DOM');
         }
         if (cropContainer) {
             cropContainer.style.position = 'relative';
@@ -82,10 +88,13 @@
     // ---------- FUNCIONES DE RECUADROS ----------
     function addCropBox(x, y, w, h) {
         const container = document.getElementById('cropBoxesContainer');
-        if (!container) {
-            console.error('No se encontró cropBoxesContainer');
-            return;
-        }
+        if (!container) return;
+
+        // Redondear para evitar decimales
+        x = Math.round(x);
+        y = Math.round(y);
+        w = Math.round(w);
+        h = Math.round(h);
 
         const box = document.createElement('div');
         box.className = 'crop-box';
@@ -102,6 +111,7 @@
             height: ${h}px;
         `;
 
+        // Handles de redimensionamiento
         ['nw', 'ne', 'sw', 'se'].forEach(dir => {
             const handle = document.createElement('div');
             handle.className = `resize-handle resize-${dir}`;
@@ -251,12 +261,68 @@
             box.w = newW;
             box.h = newH;
         }
+        // Redondear para evitar decimales
+        box.x = Math.round(box.x);
+        box.y = Math.round(box.y);
+        box.w = Math.round(box.w);
+        box.h = Math.round(box.h);
         updateCropBoxesVisual();
     });
 
     document.addEventListener('mouseup', () => {
         isDragging = false;
         isResizing = false;
+    });
+
+    // ---------- COPIAR TAMAÑO ----------
+    copySizeBtn.addEventListener('click', function() {
+        if (activeCropIndex < 0 || activeCropIndex >= cropBoxes.length) {
+            window.showNotification('Selecciona un recuadro primero.', true);
+            return;
+        }
+        const box = cropBoxes[activeCropIndex];
+        copiedSize.w = box.w;
+        copiedSize.h = box.h;
+        window.showNotification(`Tamaño copiado: ${box.w}×${box.h}`);
+    });
+
+    // ---------- PEGAR TAMAÑO A TODOS ----------
+    pasteSizeToAllBtn.addEventListener('click', function() {
+        if (copiedSize.w === 0 || copiedSize.h === 0) {
+            window.showNotification('Primero copia un tamaño.', true);
+            return;
+        }
+        if (cropBoxes.length === 0) return;
+        cropBoxes.forEach(box => {
+            box.w = copiedSize.w;
+            box.h = copiedSize.h;
+            // Ajustar si se sale de la imagen
+            if (box.x + box.w > cropOriginalWidth) box.w = cropOriginalWidth - box.x;
+            if (box.y + box.h > cropOriginalHeight) box.h = cropOriginalHeight - box.y;
+        });
+        updateCropBoxesVisual();
+        window.showNotification(`Tamaño ${copiedSize.w}×${copiedSize.h} aplicado a todos los recuadros.`);
+    });
+
+    // ---------- DUPLICAR RECUADRO ----------
+    duplicateCropBoxBtn.addEventListener('click', function() {
+        if (activeCropIndex < 0 || activeCropIndex >= cropBoxes.length) {
+            window.showNotification('Selecciona un recuadro para duplicar.', true);
+            return;
+        }
+        const src = cropBoxes[activeCropIndex];
+        // Desplazar ligeramente el nuevo recuadro
+        const offset = 20;
+        let newX = src.x + offset;
+        let newY = src.y + offset;
+        // Si se sale, intentar en otra dirección
+        if (newX + src.w > cropOriginalWidth) newX = src.x - offset;
+        if (newY + src.h > cropOriginalHeight) newY = src.y - offset;
+        // Si aún se sale, centrar
+        if (newX < 0) newX = Math.floor((cropOriginalWidth - src.w) / 2);
+        if (newY < 0) newY = Math.floor((cropOriginalHeight - src.h) / 2);
+        addCropBox(newX, newY, src.w, src.h);
+        window.showNotification('Recuadro duplicado.');
     });
 
     // ---------- CARGAR IMÁGENES SUELTAS ----------
@@ -401,15 +467,10 @@
 
     // ---------- FUNCIONES PARA PDF ----------
     function loadPdfPage(pageIndex) {
-        console.log('[DEBUG] loadPdfPage llamado para página', pageIndex);
-        if (!pdfPages.length || pageIndex < 0 || pageIndex >= pdfPages.length) {
-            console.error('[DEBUG] pdfPages vacío o índice inválido');
-            return;
-        }
+        if (!pdfPages.length || pageIndex < 0 || pageIndex >= pdfPages.length) return;
         currentPdfPage = pageIndex;
         const img = new Image();
         img.onload = function() {
-            console.log('[DEBUG] Imagen de página cargada correctamente');
             cropOriginalImage = img;
             cropOriginalWidth = img.width;
             cropOriginalHeight = img.height;
@@ -439,7 +500,7 @@
             cropSaveBtn.disabled = false;
         };
         img.onerror = function(e) {
-            console.error('[DEBUG] Error al cargar la imagen:', e);
+            console.error('[ERROR] Error al cargar la imagen:', e);
         };
         img.src = pdfPages[pageIndex];
     }
@@ -478,7 +539,6 @@
 
     // ---------- EXPONER FUNCIONES ----------
     window.loadPdfForCrop = function(pagesData) {
-        console.log('[DEBUG] loadPdfForCrop llamado con', pagesData.length, 'páginas');
         if (!pagesData || !pagesData.length) {
             window.showNotification('No se recibieron páginas del PDF.', true);
             return;
