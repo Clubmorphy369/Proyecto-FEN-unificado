@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (CORREGIDO – ALINEACIÓN + SIN PANTALLA NEGRA)
+// MÓDULO 2: RECORTE MANUAL (SIMPLIFICADO Y FUNCIONAL)
 // ============================================
 (function() {
     'use strict';
@@ -30,7 +30,7 @@
     const cropToggleCircle = document.getElementById('cropToggleCircle');
     const addCropBoxBtn = document.getElementById('addCropBoxBtn');
 
-    // PDF CONTROLS
+    // PDF CONTROLS (mantenemos solo los esenciales)
     const pdfControls = document.getElementById('pdfControls');
     const pdfPrevPageBtn = document.getElementById('pdfPrevPageBtn');
     const pdfNextPageBtn = document.getElementById('pdfNextPageBtn');
@@ -74,7 +74,6 @@
     }
 
     function getImageOffset() {
-        // Devuelve la posición de la imagen dentro del contenedor
         const containerRect = cropContainer.getBoundingClientRect();
         const imageRect = imageToCrop.getBoundingClientRect();
         return {
@@ -98,10 +97,17 @@
         });
     }
 
-    // ============ CREAR UN NUEVO RECUADRO ============
+    // ============ CREAR UN NUEVO RECUADRO (TAMAÑO HEREDADO) ============
     function addCropBox(x, y, w, h) {
         const container = document.getElementById('cropBoxesContainer');
         if (!container) return;
+
+        // Si ya hay recuadros, usar el tamaño del último
+        if (cropBoxes.length > 0) {
+            const lastBox = cropBoxes[cropBoxes.length - 1];
+            w = lastBox.w;
+            h = lastBox.h;
+        }
 
         x = Math.round(x);
         y = Math.round(y);
@@ -119,7 +125,6 @@
         const box = document.createElement('div');
         box.className = 'crop-box';
         box.dataset.index = cropBoxes.length;
-        // Estilos base (posición se actualizará en updateCropBoxesVisual)
         box.style.cssText = `
             position: absolute;
             border: 2px solid #f1c40f;
@@ -179,12 +184,11 @@
         });
         box.appendChild(deleteBtn);
 
-        // Guardamos el objeto con las coordenadas originales
         const boxObj = { x, y, w, h, element: box };
         cropBoxes.push(boxObj);
         activeCropIndex = cropBoxes.length - 1;
 
-        // Evento de arrastre (mover)
+        // Evento de arrastre
         box.addEventListener('mousedown', (e) => {
             if (e.target.classList.contains('resize-handle') || e.target === deleteBtn) return;
             e.stopPropagation();
@@ -269,19 +273,27 @@
         isResizing = false;
     });
 
-    // ============ BOTÓN: AÑADIR RECUADRO ============
+    // ============ BOTÓN: AÑADIR RECUADRO (TAMAÑO HEREDADO) ============
     if (addCropBoxBtn) {
         addCropBoxBtn.addEventListener('click', function() {
             if (!cropOriginalWidth || !cropOriginalHeight) {
                 window.showNotification('Primero carga una imagen.', true);
                 return;
             }
-            const w = Math.floor(cropOriginalWidth * 0.3);
-            const h = Math.floor(cropOriginalHeight * 0.3);
+            // Si ya hay recuadros, hereda el tamaño del último
+            let w, h;
+            if (cropBoxes.length > 0) {
+                const last = cropBoxes[cropBoxes.length - 1];
+                w = last.w;
+                h = last.h;
+            } else {
+                w = Math.floor(cropOriginalWidth * 0.3);
+                h = Math.floor(cropOriginalHeight * 0.3);
+            }
             const x = Math.floor((cropOriginalWidth - w) / 2);
             const y = Math.floor((cropOriginalHeight - h) / 2);
             addCropBox(x, y, w, h);
-            window.showNotification('Recuadro añadido.');
+            window.showNotification('Recuadro añadido con tamaño del último.');
         });
     }
 
@@ -384,7 +396,6 @@
     };
 
     window.getPdfPatterns = function() {
-        // Guardar el patrón actual antes de devolver
         if (cropBoxes.length > 0 && currentPdfPage >= 0) {
             const pattern = getCropPattern();
             if (pattern.length > 0) {
@@ -615,7 +626,7 @@
     cropPrevBtn.addEventListener('click', () => { if (cropIndex > 0) { cropIndex--; loadCropImage(); } });
     cropNextBtn.addEventListener('click', () => { if (cropIndex < cropImages.length-1) { cropIndex++; loadCropImage(); } });
 
-    // ============ PLANTILLAS ============
+    // ============ PLANTILLAS (MANTENIDAS POR SI LAS USAS) ============
     cropTemplateSaveBtn.addEventListener('click', function() {
         if (!cropOriginalWidth || !cropOriginalHeight) return;
         const pattern = getCropPattern();
