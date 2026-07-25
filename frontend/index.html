@@ -42,7 +42,6 @@
                 <button id="autoExportPgnBtn" class="btn btn-success" disabled><i class="fas fa-download"></i> Exportar PGN</button>
                 <button id="processGalleryBtn" class="btn btn-warning"><i class="fas fa-images"></i> Procesar recortes desde galería</button>
                 <button id="clearAutoResultsBtn" class="btn btn-danger"><i class="fas fa-trash"></i> Limpiar resultados</button>
-                <!-- ✅ NUEVO BOTÓN: Configurar recortes para este PDF -->
                 <button id="configPdfCropBtn" class="btn btn-warning"><i class="fas fa-crop-alt"></i> Configurar recortes para este PDF</button>
             </div>
             <div id="autoStatus" style="margin-top:10px; font-weight:500;"></div>
@@ -74,16 +73,19 @@
             </div>
             <div id="cropContainer">
                 <img id="imageToCrop" style="max-width:100%; display:block; margin:0 auto;">
+                <!-- Contenedor para recuadros (ya existe) -->
                 <div id="cropBoxesContainer" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:5;"></div>
             </div>
 
-            <!-- ✅ CONTROLES PARA PDF (navegación por páginas) -->
+            <!-- CONTROLES PARA PDF -->
             <div id="pdfControls" style="display:none; margin:10px 0; padding:10px; background:#2d2d2d; border-radius:6px; flex-wrap:wrap; align-items:center; gap:8px;">
                 <button id="pdfPrevPageBtn" class="btn">⬅ Anterior</button>
                 <span id="pdfPageCounter" style="color:#ddd; margin:0 10px;">Página 1 de 1</span>
                 <button id="pdfNextPageBtn" class="btn">Siguiente ➡</button>
                 <button id="pdfApplyToAllBtn" class="btn btn-success">Aplicar a todas</button>
                 <button id="pdfSavePatternBtn" class="btn btn-warning">Guardar patrón</button>
+                <!-- Botón para añadir recuadro manualmente -->
+                <button id="addCropBoxBtn" class="btn" style="background:#9b59b6;">➕ Añadir recuadro</button>
             </div>
 
             <!-- BOTONES DE ACCIÓN -->
