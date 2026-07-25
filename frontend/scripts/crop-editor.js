@@ -59,19 +59,35 @@
     let currentPdfPage = 0;
     let pagePatterns = {};
 
-    // ---------- INICIALIZAR EDITOR ----------
+    // ---------- INICIALIZAR EDITOR (MEJORADO) ----------
     function initCropEditor() {
-        const container = document.createElement('div');
-        container.id = 'cropBoxesContainer';
-        container.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:5;';
-        cropContainer.style.position = 'relative';
-        cropContainer.appendChild(container);
+        // Usar el contenedor existente en el HTML
+        const container = document.getElementById('cropBoxesContainer');
+        if (container) {
+            container.innerHTML = '';
+            container.style.position = 'absolute';
+            container.style.top = '0';
+            container.style.left = '0';
+            container.style.width = '100%';
+            container.style.height = '100%';
+            container.style.pointerEvents = 'none';
+            container.style.zIndex = '5';
+        } else {
+            console.error('No se encontró cropBoxesContainer en el DOM');
+        }
+        // Asegurar que cropContainer tenga posición relativa
+        if (cropContainer) {
+            cropContainer.style.position = 'relative';
+        }
     }
 
     // ---------- FUNCIONES DE RECUADROS ----------
     function addCropBox(x, y, w, h) {
         const container = document.getElementById('cropBoxesContainer');
-        if (!container) return;
+        if (!container) {
+            console.error('No se encontró cropBoxesContainer');
+            return;
+        }
 
         const box = document.createElement('div');
         box.className = 'crop-box';
@@ -206,7 +222,7 @@
         });
     }
 
-    // Eventos de mouse para mover/redimensionar
+    // ---------- EVENTOS DE MOUSE PARA ARRASTRAR/REDIMENSIONAR ----------
     document.addEventListener('mousemove', (e) => {
         if (!isDragging && !isResizing) return;
         if (activeCropIndex < 0 || activeCropIndex >= cropBoxes.length) return;
@@ -246,7 +262,7 @@
         isResizing = false;
     });
 
-    // ---------- CARGAR IMÁGENES (SUELTAS) ----------
+    // ---------- CARGAR IMÁGENES SUELTAS ----------
     cropLoadBtn.addEventListener('click', function() {
         const files = cropFileInput.files;
         if (!files.length) {
@@ -257,7 +273,6 @@
         cropIndex = 0;
         cropEditor.style.display = 'block';
         clearCropBoxes();
-        // Ocultar controles PDF
         if (pdfControls) pdfControls.style.display = 'none';
         loadCropImage();
     });
@@ -272,7 +287,6 @@
                 cropOriginalWidth = img.width;
                 cropOriginalHeight = img.height;
                 imageToCrop.src = e.target.result;
-                // Inicializar con recuadro central si no hay ninguno
                 if (cropBoxes.length === 0) {
                     const w = Math.floor(cropOriginalWidth * 0.6);
                     const h = Math.floor(cropOriginalHeight * 0.6);
@@ -402,11 +416,11 @@
             if (pagePatterns[pageIndex]) {
                 pagePatterns[pageIndex].forEach(box => addCropBox(box.x, box.y, box.w, box.h));
             } else {
-                // Patrón por defecto: grid 3x2 con margen
+                // Patrón por defecto: grid 3x2 con margen dinámico
                 const cols = 2, rows = 3;
                 const cellW = Math.floor(img.width / cols);
                 const cellH = Math.floor(img.height / rows);
-                const margin = 15;
+                const margin = Math.min(15, Math.floor(Math.min(cellW, cellH) * 0.1));
                 for (let r = 0; r < rows; r++) {
                     for (let c = 0; c < cols; c++) {
                         const x = c * cellW + margin;
@@ -457,8 +471,12 @@
     if (pdfApplyToAllBtn) pdfApplyToAllBtn.addEventListener('click', applyCurrentPatternToAll);
     if (pdfSavePatternBtn) pdfSavePatternBtn.addEventListener('click', saveCurrentPagePattern);
 
-    // Exponer función para cargar PDF desde el frontend principal
+    // ---------- EXPONER FUNCIONES ----------
     window.loadPdfForCrop = function(pagesData) {
+        if (!pagesData || !pagesData.length) {
+            window.showNotification('No se recibieron páginas del PDF.', true);
+            return;
+        }
         pdfPages = pagesData;
         currentPdfPage = 0;
         pagePatterns = {};
@@ -471,7 +489,7 @@
         return pagePatterns;
     };
 
-    // ---------- RENDER GALERÍA (SIN CAMBIOS) ----------
+    // ---------- RENDER GALERÍA ----------
     function renderCropGallery() {
         cropGalleryGrid.innerHTML = '';
         cropCount.textContent = window.cropBoards.length;
@@ -608,5 +626,6 @@
     window.renderCropGallery = renderCropGallery;
     window.getCropBoards = () => window.cropBoards;
 
+    // Inicializar
     initCropEditor();
 })();
