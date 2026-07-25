@@ -1,20 +1,16 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (CON CÍRCULO DE TURNO Y SELECTIVIDAD)
+// MÓDULO 2: RECORTE MANUAL CON SOPORTE PARA PDF (PATRÓN POR PÁGINA)
 // ============================================
 (function() {
     'use strict';
 
+    // ---------- DOM ELEMENTS ----------
     const cropFileInput = document.getElementById('cropFileInput');
     const cropLoadBtn = document.getElementById('cropLoadBtn');
     const cropCounter = document.getElementById('cropCounter');
     const cropEditor = document.getElementById('cropEditor');
     const imageToCrop = document.getElementById('imageToCrop');
-    const cropX = document.getElementById('cropX');
-    const cropY = document.getElementById('cropY');
-    const cropW = document.getElementById('cropW');
-    const cropH = document.getElementById('cropH');
-    const cropApplyBtn = document.getElementById('cropApplyBtn');
-    const cropZoomBtn = document.getElementById('cropZoomBtn');
+    const cropContainer = document.getElementById('cropContainer');
     const cropSaveBtn = document.getElementById('cropSaveBtn');
     const cropPrevBtn = document.getElementById('cropPrevBtn');
     const cropNextBtn = document.getElementById('cropNextBtn');
@@ -33,28 +29,224 @@
     const cropDeleteSelectedBtn = document.getElementById('cropDeleteSelectedBtn');
     const cropToggleCircle = document.getElementById('cropToggleCircle');
 
+    // ---------- NUEVOS ELEMENTOS PARA PDF ----------
+    const pdfControls = document.getElementById('pdfControls');
+    const pdfPrevPageBtn = document.getElementById('pdfPrevPageBtn');
+    const pdfNextPageBtn = document.getElementById('pdfNextPageBtn');
+    const pdfApplyToAllBtn = document.getElementById('pdfApplyToAllBtn');
+    const pdfSavePatternBtn = document.getElementById('pdfSavePatternBtn');
+    const pdfPageCounter = document.getElementById('pdfPageCounter');
+
+    // ---------- VARIABLES GLOBALES ----------
     let cropImages = [];
     let cropIndex = 0;
-    window.cropBoards = []; // { dataUrl, turno: 'white'|'black'|null }
+    window.cropBoards = [];
     let cropSelected = new Set();
     let cropTemplate = null;
     let cropOriginalImage = null;
     let cropOriginalWidth = 0, cropOriginalHeight = 0;
-    let cropBox = null;
+    let cropZoomActive = false;
+    let includeCircleInDownload = true;
+
+    // Variables para múltiples recuadros
+    let cropBoxes = [];
+    let activeCropIndex = -1;
     let isDragging = false, isResizing = false, resizeDir = null;
     let startX, startY;
-    let cropBoxX = 0, cropBoxY = 0, cropBoxW = 200, cropBoxH = 200;
-    let cropZoomActive = false;
-    let includeCircleInDownload = true; // por defecto activado
 
-    // ---------- INICIALIZAR CAJA DE RECORTE ----------
-    function initCropBox() {
-        cropBox = document.querySelector('.crop-box');
-        if (!cropBox) return;
-        cropBox.classList.add('hidden');
+    // Variables para PDF
+    let pdfPages = [];
+    let currentPdfPage = 0;
+    let pagePatterns = {};
+
+    // ---------- INICIALIZAR EDITOR ----------
+    function initCropEditor() {
+        const container = document.createElement('div');
+        container.id = 'cropBoxesContainer';
+        container.style.cssText = 'position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:5;';
+        cropContainer.style.position = 'relative';
+        cropContainer.appendChild(container);
     }
 
-    // ---------- CARGAR IMÁGENES ----------
+    // ---------- FUNCIONES DE RECUADROS ----------
+    function addCropBox(x, y, w, h) {
+        const container = document.getElementById('cropBoxesContainer');
+        if (!container) return;
+
+        const box = document.createElement('div');
+        box.className = 'crop-box';
+        box.style.cssText = `
+            position: absolute;
+            border: 2px solid #f1c40f;
+            background: rgba(52,152,219,0.15);
+            cursor: move;
+            box-shadow: 0 0 0 9999px rgba(0,0,0,0.3);
+            pointer-events: auto;
+            left: ${x}px;
+            top: ${y}px;
+            width: ${w}px;
+            height: ${h}px;
+        `;
+
+        // Handles
+        ['nw', 'ne', 'sw', 'se'].forEach(dir => {
+            const handle = document.createElement('div');
+            handle.className = `resize-handle resize-${dir}`;
+            handle.style.cssText = `
+                position: absolute;
+                width: 12px;
+                height: 12px;
+                background: #f1c40f;
+                border-radius: 50%;
+                border: 1px solid white;
+                ${dir.includes('n') ? 'top: -5px;' : 'bottom: -5px;'}
+                ${dir.includes('w') ? 'left: -5px;' : 'right: -5px;'}
+                cursor: ${dir}-resize;
+                pointer-events: auto;
+            `;
+            box.appendChild(handle);
+        });
+
+        // Botón eliminar
+        const deleteBtn = document.createElement('div');
+        deleteBtn.textContent = '×';
+        deleteBtn.style.cssText = `
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 16px;
+            height: 16px;
+            background: #e74c3c;
+            color: white;
+            border-radius: 50%;
+            font-size: 12px;
+            line-height: 16px;
+            text-align: center;
+            cursor: pointer;
+            pointer-events: auto;
+            z-index: 10;
+        `;
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const idx = cropBoxes.findIndex(b => b.element === box);
+            if (idx >= 0) {
+                cropBoxes.splice(idx, 1);
+                box.remove();
+                if (activeCropIndex === idx) activeCropIndex = -1;
+                if (activeCropIndex > idx) activeCropIndex--;
+            }
+        });
+        box.appendChild(deleteBtn);
+
+        // Eventos de arrastre
+        box.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('resize-handle') || e.target === deleteBtn) return;
+            e.stopPropagation();
+            e.preventDefault();
+            activeCropIndex = cropBoxes.findIndex(b => b.element === box);
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            const scale = imageToCrop.width / cropOriginalWidth;
+            cropBoxes[activeCropIndex]._startX = parseFloat(box.style.left) / scale || 0;
+            cropBoxes[activeCropIndex]._startY = parseFloat(box.style.top) / scale || 0;
+        });
+
+        box.querySelectorAll('.resize-handle').forEach(handle => {
+            handle.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                activeCropIndex = cropBoxes.findIndex(b => b.element === box);
+                isResizing = true;
+                resizeDir = handle.className.split(' ')[1].replace('resize-', '');
+                startX = e.clientX;
+                startY = e.clientY;
+                const scale = imageToCrop.width / cropOriginalWidth;
+                const el = cropBoxes[activeCropIndex].element;
+                cropBoxes[activeCropIndex]._startX = parseFloat(el.style.left) / scale || 0;
+                cropBoxes[activeCropIndex]._startY = parseFloat(el.style.top) / scale || 0;
+                cropBoxes[activeCropIndex]._startW = parseFloat(el.style.width) / scale || 0;
+                cropBoxes[activeCropIndex]._startH = parseFloat(el.style.height) / scale || 0;
+            });
+        });
+
+        container.appendChild(box);
+        cropBoxes.push({ x, y, w, h, element: box });
+        activeCropIndex = cropBoxes.length - 1;
+        updateCropBoxesVisual();
+    }
+
+    function clearCropBoxes() {
+        const container = document.getElementById('cropBoxesContainer');
+        if (container) container.innerHTML = '';
+        cropBoxes = [];
+        activeCropIndex = -1;
+    }
+
+    function getCropPattern() {
+        return cropBoxes.map(box => ({
+            x: Math.round(box.x),
+            y: Math.round(box.y),
+            w: Math.round(box.w),
+            h: Math.round(box.h)
+        }));
+    }
+
+    function updateCropBoxesVisual() {
+        if (!cropOriginalWidth || !cropOriginalHeight) return;
+        const scale = imageToCrop.width / cropOriginalWidth;
+        cropBoxes.forEach((box, idx) => {
+            const el = box.element;
+            el.style.left = (box.x * scale) + 'px';
+            el.style.top = (box.y * scale) + 'px';
+            el.style.width = (box.w * scale) + 'px';
+            el.style.height = (box.h * scale) + 'px';
+            el.style.borderColor = (idx === activeCropIndex) ? '#2ecc71' : '#f1c40f';
+            el.style.borderWidth = (idx === activeCropIndex) ? '3px' : '2px';
+        });
+    }
+
+    // Eventos de mouse para mover/redimensionar
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging && !isResizing) return;
+        if (activeCropIndex < 0 || activeCropIndex >= cropBoxes.length) return;
+        const box = cropBoxes[activeCropIndex];
+        const scale = imageToCrop.width / cropOriginalWidth;
+        const dx = (e.clientX - startX) / scale;
+        const dy = (e.clientY - startY) / scale;
+
+        if (isDragging) {
+            let newX = box._startX + dx;
+            let newY = box._startY + dy;
+            newX = Math.max(0, Math.min(cropOriginalWidth - box.w, newX));
+            newY = Math.max(0, Math.min(cropOriginalHeight - box.h, newY));
+            box.x = newX;
+            box.y = newY;
+        } else if (isResizing) {
+            let newW = box._startW;
+            let newH = box._startH;
+            let newX = box._startX;
+            let newY = box._startY;
+            if (resizeDir.includes('e')) newW = Math.max(20, box._startW + dx);
+            if (resizeDir.includes('w')) { newX = Math.max(0, box._startX + dx); newW = Math.max(20, box._startW - dx); }
+            if (resizeDir.includes('s')) newH = Math.max(20, box._startH + dy);
+            if (resizeDir.includes('n')) { newY = Math.max(0, box._startY + dy); newH = Math.max(20, box._startH - dy); }
+            if (newX + newW > cropOriginalWidth) newW = cropOriginalWidth - newX;
+            if (newY + newH > cropOriginalHeight) newH = cropOriginalHeight - newY;
+            box.x = newX;
+            box.y = newY;
+            box.w = newW;
+            box.h = newH;
+        }
+        updateCropBoxesVisual();
+    });
+
+    document.addEventListener('mouseup', () => {
+        isDragging = false;
+        isResizing = false;
+    });
+
+    // ---------- CARGAR IMÁGENES (SUELTAS) ----------
     cropLoadBtn.addEventListener('click', function() {
         const files = cropFileInput.files;
         if (!files.length) {
@@ -64,6 +256,9 @@
         cropImages = Array.from(files);
         cropIndex = 0;
         cropEditor.style.display = 'block';
+        clearCropBoxes();
+        // Ocultar controles PDF
+        if (pdfControls) pdfControls.style.display = 'none';
         loadCropImage();
     });
 
@@ -77,16 +272,15 @@
                 cropOriginalWidth = img.width;
                 cropOriginalHeight = img.height;
                 imageToCrop.src = e.target.result;
-                if (cropBoxW === 200 && cropBoxH === 200) {
-                    cropBoxW = Math.floor(cropOriginalWidth * 0.6);
-                    cropBoxH = Math.floor(cropOriginalHeight * 0.6);
-                    cropBoxX = Math.floor((cropOriginalWidth - cropBoxW) / 2);
-                    cropBoxY = Math.floor((cropOriginalHeight - cropBoxH) / 2);
+                // Inicializar con recuadro central si no hay ninguno
+                if (cropBoxes.length === 0) {
+                    const w = Math.floor(cropOriginalWidth * 0.6);
+                    const h = Math.floor(cropOriginalHeight * 0.6);
+                    const x = Math.floor((cropOriginalWidth - w) / 2);
+                    const y = Math.floor((cropOriginalHeight - h) / 2);
+                    addCropBox(x, y, w, h);
                 }
-                syncCropUI();
-                cropBox.classList.remove('hidden');
                 cropSaveBtn.disabled = false;
-                attachCropEvents();
             };
             img.src = e.target.result;
         };
@@ -96,213 +290,19 @@
         cropNextBtn.disabled = cropIndex === cropImages.length - 1;
     }
 
-    // ---------- SINCronizar UI ----------
-    function syncCropUI() {
-        cropX.value = Math.round(cropBoxX);
-        cropY.value = Math.round(cropBoxY);
-        cropW.value = Math.round(cropBoxW);
-        cropH.value = Math.round(cropBoxH);
-        updateCropBoxVisual();
-    }
-
-    function updateCropBoxVisual() {
-        if (!cropBox) return;
-        const scale = imageToCrop.width / cropOriginalWidth;
-        cropBox.style.left = (cropBoxX * scale) + 'px';
-        cropBox.style.top = (cropBoxY * scale) + 'px';
-        cropBox.style.width = (cropBoxW * scale) + 'px';
-        cropBox.style.height = (cropBoxH * scale) + 'px';
-    }
-
-    // ---------- EVENTOS DE ARRASTRE ----------
-    function attachCropEvents() {
-        if (!cropBox) return;
-        cropBox.removeEventListener('mousedown', startDrag);
-        cropBox.querySelectorAll('.resize-handle').forEach(h => h.removeEventListener('mousedown', startResize));
-        document.removeEventListener('mousemove', onMouseMove);
-        document.removeEventListener('mouseup', stopInteraction);
-        cropBox.addEventListener('mousedown', startDrag);
-        cropBox.querySelectorAll('.resize-handle').forEach(h => h.addEventListener('mousedown', startResize));
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', stopInteraction);
-    }
-
-    function startDrag(e) { if (e.target.classList.contains('resize-handle')) return; isDragging = true; startX = e.clientX; startY = e.clientY; }
-    function startResize(e) { isResizing = true; resizeDir = e.target.classList[1]; startX = e.clientX; startY = e.clientY; }
-
-    function onMouseMove(e) {
-        if (!isDragging && !isResizing) return;
-        const dx = e.clientX - startX;
-        const dy = e.clientY - startY;
-        const scale = imageToCrop.width / cropOriginalWidth;
-        if (isDragging) {
-            let newX = cropBoxX + dx/scale;
-            let newY = cropBoxY + dy/scale;
-            if (newX >= 0 && newX + cropBoxW <= cropOriginalWidth) cropBoxX = newX;
-            if (newY >= 0 && newY + cropBoxH <= cropOriginalHeight) cropBoxY = newY;
-            cropBoxX = Math.round(cropBoxX);
-            cropBoxY = Math.round(cropBoxY);
-        } else {
-            let deltaW = 0, deltaH = 0;
-            if (resizeDir.includes('w')) deltaW = -dx/scale;
-            if (resizeDir.includes('e')) deltaW = dx/scale;
-            if (resizeDir.includes('n')) deltaH = -dy/scale;
-            if (resizeDir.includes('s')) deltaH = dy/scale;
-            let newW = cropBoxW + deltaW;
-            let newH = cropBoxH + deltaH;
-            let newX = cropBoxX;
-            let newY = cropBoxY;
-            if (resizeDir.includes('w')) newX = cropBoxX + deltaW;
-            if (resizeDir.includes('n')) newY = cropBoxY + deltaH;
-            if (newW >= 20 && newX >= 0 && newX + newW <= cropOriginalWidth) { cropBoxW = Math.round(newW); cropBoxX = Math.round(newX); }
-            if (newH >= 20 && newY >= 0 && newY + newH <= cropOriginalHeight) { cropBoxH = Math.round(newH); cropBoxY = Math.round(newY); }
-        }
-        syncCropUI();
-        startX = e.clientX;
-        startY = e.clientY;
-    }
-    function stopInteraction() { isDragging = false; isResizing = false; }
-
-    // ---------- ACCIONES DE RECORTE ----------
-    cropApplyBtn.addEventListener('click', function() {
-        let x = parseInt(cropX.value) || 0;
-        let y = parseInt(cropY.value) || 0;
-        let w = parseInt(cropW.value) || 100;
-        let h = parseInt(cropH.value) || 100;
-        if (x + w > cropOriginalWidth) w = cropOriginalWidth - x;
-        if (y + h > cropOriginalHeight) h = cropOriginalHeight - y;
-        if (x < 0) x = 0;
-        if (y < 0) y = 0;
-        if (w < 10) w = 10;
-        if (h < 10) h = 10;
-        cropBoxX = x; cropBoxY = y; cropBoxW = w; cropBoxH = h;
-        syncCropUI();
-        window.showNotification('Recorte aplicado');
-    });
-
-    cropZoomBtn.addEventListener('click', function() {
-        cropZoomActive = !cropZoomActive;
-        if (cropZoomActive) {
-            imageToCrop.style.maxWidth = 'none';
-            imageToCrop.style.width = cropOriginalWidth + 'px';
-            imageToCrop.style.height = 'auto';
-            cropZoomBtn.textContent = 'Zoom normal';
-        } else {
-            imageToCrop.style.maxWidth = '100%';
-            imageToCrop.style.width = 'auto';
-            cropZoomBtn.textContent = 'Zoom 100%';
-        }
-        setTimeout(updateCropBoxVisual, 50);
-    });
-
-    function getCropDataUrl() {
-        if (!cropOriginalImage || cropBoxW <= 0 || cropBoxH <= 0) return null;
-        const canvas = document.createElement('canvas');
-        canvas.width = cropBoxW;
-        canvas.height = cropBoxH;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(cropOriginalImage, cropBoxX, cropBoxY, cropBoxW, cropBoxH, 0, 0, cropBoxW, cropBoxH);
-        return canvas.toDataURL('image/jpeg', 0.92);
-    }
-
-    // ---------- DIBUJAR CÍRCULO DE TURNO ----------
-    function addTurnCircle(dataUrl, turno, callback) {
-        if (!turno || !includeCircleInDownload) {
-            callback(dataUrl);
-            return;
-        }
-        const img = new Image();
-        img.onload = function() {
-            const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
-            const circleSize = Math.max(20, Math.min(40, Math.floor(img.width / 15)));
-            const padding = 10;
-            const x = img.width - circleSize - padding;
-            const y = img.height - circleSize - padding;
-            ctx.beginPath();
-            ctx.arc(x + circleSize/2, y + circleSize/2, circleSize/2, 0, 2 * Math.PI);
-            ctx.fillStyle = turno === 'white' ? '#ffffff' : '#000000';
-            ctx.fill();
-            ctx.strokeStyle = '#333333';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            callback(canvas.toDataURL('image/jpeg', 0.92));
-        };
-        img.src = dataUrl;
-    }
-
-    // ---------- GUARDAR RECORTE ----------
-    cropSaveBtn.addEventListener('click', function() {
-        const dataUrl = getCropDataUrl();
-        if (!dataUrl) { window.showNotification('Error al recortar', true); return; }
-        window.cropBoards.push({ dataUrl, turno: null });
-        renderCropGallery();
-        window.showNotification(`Recorte guardado. Asigna turno en la galería.`);
-        if (cropIndex < cropImages.length - 1) { cropIndex++; loadCropImage(); }
-        else { cropGallery.style.display = 'block'; }
-    });
-
-    // ---------- NAVEGACIÓN ENTRE IMÁGENES ----------
-    cropPrevBtn.addEventListener('click', function() { if (cropIndex > 0) { cropIndex--; loadCropImage(); } });
-    cropNextBtn.addEventListener('click', function() { if (cropIndex < cropImages.length-1) { cropIndex++; loadCropImage(); } });
-
-    // ---------- PLANTILLAS ----------
-    cropTemplateSaveBtn.addEventListener('click', function() {
-        if (cropOriginalWidth && cropOriginalHeight) {
-            cropTemplate = {
-                x: cropBoxX / cropOriginalWidth,
-                y: cropBoxY / cropOriginalHeight,
-                w: cropBoxW / cropOriginalWidth,
-                h: cropBoxH / cropOriginalHeight
-            };
-            cropTemplateApplyBtn.disabled = false;
-            window.showNotification('Plantilla guardada');
-        }
-    });
-
-    cropTemplateApplyBtn.addEventListener('click', function() {
-        if (!cropTemplate || !cropOriginalWidth) return;
-        cropBoxX = cropTemplate.x * cropOriginalWidth;
-        cropBoxY = cropTemplate.y * cropOriginalHeight;
-        cropBoxW = cropTemplate.w * cropOriginalWidth;
-        cropBoxH = cropTemplate.h * cropOriginalHeight;
-        cropBoxX = Math.round(cropBoxX);
-        cropBoxY = Math.round(cropBoxY);
-        cropBoxW = Math.max(10, Math.round(cropBoxW));
-        cropBoxH = Math.max(10, Math.round(cropBoxH));
-        syncCropUI();
-        window.showNotification('Plantilla aplicada');
-    });
-
-    // ---------- PROCESAR TODAS LAS IMÁGENES ----------
+    // ---------- PROCESAR TODAS LAS IMÁGENES (SUELTAS) ----------
     processAllBtn.addEventListener('click', function() {
-        if (cropImages.length === 0) {
-            window.showNotification('Primero carga imágenes.', true);
+        if (cropImages.length === 0 || cropBoxes.length === 0) {
+            window.showNotification('Carga imágenes y ajusta recuadros primero.', true);
             return;
-        }
-        if (!cropOriginalImage) {
-            window.showNotification('Ajusta el recorte en la imagen actual.', true);
-            return;
-        }
-        if (!cropTemplate) {
-            cropTemplate = {
-                x: cropBoxX / cropOriginalWidth,
-                y: cropBoxY / cropOriginalHeight,
-                w: cropBoxW / cropOriginalWidth,
-                h: cropBoxH / cropOriginalHeight
-            };
-            cropTemplateApplyBtn.disabled = false;
         }
         let processed = 0;
         const total = cropImages.length;
-        window.showNotification(`Procesando ${total} imágenes...`);
+        window.showNotification(`Procesando ${total} imágenes con ${cropBoxes.length} recuadros...`);
 
         function processNext(idx) {
             if (idx >= total) {
-                window.showNotification(`¡Procesadas ${total} imágenes! Ahora asigna turnos en la galería.`);
+                window.showNotification(`¡Procesadas ${total} imágenes!`);
                 renderCropGallery();
                 return;
             }
@@ -310,19 +310,21 @@
             reader.onload = function(e) {
                 const img = new Image();
                 img.onload = function() {
-                    const w = img.width;
-                    const h = img.height;
-                    const cropX = Math.round(cropTemplate.x * w);
-                    const cropY = Math.round(cropTemplate.y * h);
-                    const cropW = Math.max(10, Math.round(cropTemplate.w * w));
-                    const cropH = Math.max(10, Math.round(cropTemplate.h * h));
-                    const canvas = document.createElement('canvas');
-                    canvas.width = cropW;
-                    canvas.height = cropH;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-                    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-                    window.cropBoards.push({ dataUrl, turno: null });
+                    const scaleX = img.width / cropOriginalWidth;
+                    const scaleY = img.height / cropOriginalHeight;
+                    cropBoxes.forEach(box => {
+                        const x = Math.round(box.x * scaleX);
+                        const y = Math.round(box.y * scaleY);
+                        const w = Math.max(10, Math.round(box.w * scaleX));
+                        const h = Math.max(10, Math.round(box.h * scaleY));
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w;
+                        canvas.height = h;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
+                        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                        window.cropBoards.push({ dataUrl, turno: null });
+                    });
                     processed++;
                     processNext(idx + 1);
                 };
@@ -333,7 +335,143 @@
         processNext(0);
     });
 
-    // ---------- RENDERIZAR GALERÍA ----------
+    // ---------- GUARDAR RECORTE (IMÁGENES SUELTAS) ----------
+    cropSaveBtn.addEventListener('click', function() {
+        if (cropBoxes.length === 0) {
+            window.showNotification('No hay recuadros.', true);
+            return;
+        }
+        cropBoxes.forEach(box => {
+            const canvas = document.createElement('canvas');
+            canvas.width = box.w;
+            canvas.height = box.h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(cropOriginalImage, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+            window.cropBoards.push({ dataUrl, turno: null });
+        });
+        renderCropGallery();
+        window.showNotification(`Guardados ${cropBoxes.length} recortes.`);
+        if (cropIndex < cropImages.length - 1) { cropIndex++; loadCropImage(); }
+        else { cropGallery.style.display = 'block'; }
+    });
+
+    // ---------- NAVEGACIÓN ENTRE IMÁGENES (SUELTAS) ----------
+    cropPrevBtn.addEventListener('click', () => { if (cropIndex > 0) { cropIndex--; loadCropImage(); } });
+    cropNextBtn.addEventListener('click', () => { if (cropIndex < cropImages.length-1) { cropIndex++; loadCropImage(); } });
+
+    // ---------- PLANTILLAS ----------
+    cropTemplateSaveBtn.addEventListener('click', function() {
+        if (!cropOriginalWidth || !cropOriginalHeight) return;
+        const pattern = getCropPattern();
+        if (pattern.length === 0) { window.showNotification('No hay recuadros.', true); return; }
+        cropTemplate = pattern.map(box => ({
+            x: box.x / cropOriginalWidth,
+            y: box.y / cropOriginalHeight,
+            w: box.w / cropOriginalWidth,
+            h: box.h / cropOriginalHeight
+        }));
+        cropTemplateApplyBtn.disabled = false;
+        window.showNotification('Plantilla guardada (proporcional).');
+    });
+
+    cropTemplateApplyBtn.addEventListener('click', function() {
+        if (!cropTemplate || !cropOriginalWidth) return;
+        clearCropBoxes();
+        cropTemplate.forEach(t => {
+            const x = Math.round(t.x * cropOriginalWidth);
+            const y = Math.round(t.y * cropOriginalHeight);
+            const w = Math.max(10, Math.round(t.w * cropOriginalWidth));
+            const h = Math.max(10, Math.round(t.h * cropOriginalHeight));
+            addCropBox(x, y, w, h);
+        });
+        window.showNotification('Plantilla aplicada.');
+    });
+
+    // ---------- FUNCIONES PARA PDF ----------
+    function loadPdfPage(pageIndex) {
+        if (!pdfPages.length || pageIndex < 0 || pageIndex >= pdfPages.length) return;
+        currentPdfPage = pageIndex;
+        const img = new Image();
+        img.onload = function() {
+            cropOriginalImage = img;
+            cropOriginalWidth = img.width;
+            cropOriginalHeight = img.height;
+            imageToCrop.src = pdfPages[pageIndex];
+            clearCropBoxes();
+            if (pagePatterns[pageIndex]) {
+                pagePatterns[pageIndex].forEach(box => addCropBox(box.x, box.y, box.w, box.h));
+            } else {
+                // Patrón por defecto: grid 3x2 con margen
+                const cols = 2, rows = 3;
+                const cellW = Math.floor(img.width / cols);
+                const cellH = Math.floor(img.height / rows);
+                const margin = 15;
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const x = c * cellW + margin;
+                        const y = r * cellH + margin;
+                        const w = cellW - 2 * margin;
+                        const h = cellH - 2 * margin;
+                        if (w > 20 && h > 20) addCropBox(x, y, w, h);
+                    }
+                }
+            }
+            if (pdfPageCounter) pdfPageCounter.textContent = `Página ${pageIndex+1} de ${pdfPages.length}`;
+            if (pdfPrevPageBtn) pdfPrevPageBtn.disabled = pageIndex === 0;
+            if (pdfNextPageBtn) pdfNextPageBtn.disabled = pageIndex === pdfPages.length - 1;
+            cropSaveBtn.disabled = false;
+        };
+        img.src = pdfPages[pageIndex];
+    }
+
+    function saveCurrentPagePattern() {
+        const pattern = getCropPattern();
+        if (pattern.length === 0) {
+            window.showNotification('No hay recuadros en esta página.', true);
+            return;
+        }
+        pagePatterns[currentPdfPage] = pattern;
+        window.showNotification(`Patrón guardado para página ${currentPdfPage+1}.`);
+    }
+
+    function applyCurrentPatternToAll() {
+        const pattern = getCropPattern();
+        if (pattern.length === 0) {
+            window.showNotification('No hay recuadros para copiar.', true);
+            return;
+        }
+        for (let i = 0; i < pdfPages.length; i++) {
+            pagePatterns[i] = JSON.parse(JSON.stringify(pattern));
+        }
+        window.showNotification('Patrón aplicado a todas las páginas.');
+    }
+
+    // ---------- EVENTOS DE PDF ----------
+    if (pdfPrevPageBtn) pdfPrevPageBtn.addEventListener('click', () => {
+        if (currentPdfPage > 0) loadPdfPage(currentPdfPage - 1);
+    });
+    if (pdfNextPageBtn) pdfNextPageBtn.addEventListener('click', () => {
+        if (currentPdfPage < pdfPages.length - 1) loadPdfPage(currentPdfPage + 1);
+    });
+    if (pdfApplyToAllBtn) pdfApplyToAllBtn.addEventListener('click', applyCurrentPatternToAll);
+    if (pdfSavePatternBtn) pdfSavePatternBtn.addEventListener('click', saveCurrentPagePattern);
+
+    // Exponer función para cargar PDF desde el frontend principal
+    window.loadPdfForCrop = function(pagesData) {
+        pdfPages = pagesData;
+        currentPdfPage = 0;
+        pagePatterns = {};
+        cropEditor.style.display = 'block';
+        if (pdfControls) pdfControls.style.display = 'flex';
+        loadPdfPage(0);
+    };
+
+    window.getPdfPatterns = function() {
+        return pagePatterns;
+    };
+
+    // ---------- RENDER GALERÍA (SIN CAMBIOS) ----------
     function renderCropGallery() {
         cropGalleryGrid.innerHTML = '';
         cropCount.textContent = window.cropBoards.length;
@@ -345,7 +483,6 @@
             div.className = 'gallery-item' + (cropSelected.has(idx) ? ' selected' : '');
             const img = document.createElement('img');
             img.src = board.dataUrl;
-            img.alt = 'Tablero '+(idx+1);
             const info = document.createElement('div');
             info.className = 'gallery-info';
             const badge = document.createElement('span');
@@ -369,12 +506,10 @@
             downloadBtn.style.marginLeft = '5px';
             downloadBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                addTurnCircle(board.dataUrl, board.turno, (finalUrl) => {
-                    const link = document.createElement('a');
-                    link.href = finalUrl;
-                    link.download = `tablero_${idx+1}${board.turno ? '_'+board.turno : ''}.jpg`;
-                    link.click();
-                });
+                const link = document.createElement('a');
+                link.href = board.dataUrl;
+                link.download = `tablero_${idx+1}${board.turno ? '_'+board.turno : ''}.jpg`;
+                link.click();
             });
 
             info.appendChild(badge);
@@ -400,15 +535,15 @@
     }
 
     // ---------- EVENTOS DE GALERÍA ----------
-    cropSelectAll.addEventListener('click', function() {
+    cropSelectAll.addEventListener('click', () => {
         for (let i = 0; i < window.cropBoards.length; i++) cropSelected.add(i);
         renderCropGallery();
     });
-    cropDeselectAll.addEventListener('click', function() {
+    cropDeselectAll.addEventListener('click', () => {
         cropSelected.clear();
         renderCropGallery();
     });
-    cropBatchWhite.addEventListener('click', function() {
+    cropBatchWhite.addEventListener('click', () => {
         for (let i = 0; i < window.cropBoards.length; i++) {
             if (cropSelected.has(i)) window.cropBoards[i].turno = 'white';
             else window.cropBoards[i].turno = 'black';
@@ -416,7 +551,7 @@
         renderCropGallery();
         window.showNotification('Blancas asignadas a seleccionados, Negras al resto');
     });
-    cropBatchBlack.addEventListener('click', function() {
+    cropBatchBlack.addEventListener('click', () => {
         for (let i = 0; i < window.cropBoards.length; i++) {
             if (cropSelected.has(i)) window.cropBoards[i].turno = 'black';
             else window.cropBoards[i].turno = 'white';
@@ -424,27 +559,19 @@
         renderCropGallery();
         window.showNotification('Negras asignadas a seleccionados, Blancas al resto');
     });
-
-    // ---------- ELIMINAR SELECCIONADAS ----------
-    cropDeleteSelectedBtn.addEventListener('click', function() {
-        if (cropSelected.size === 0) {
-            window.showNotification('No hay imágenes seleccionadas.', true);
-            return;
-        }
+    cropDeleteSelectedBtn.addEventListener('click', () => {
+        if (cropSelected.size === 0) { window.showNotification('No hay imágenes seleccionadas.', true); return; }
         if (confirm(`¿Eliminar ${cropSelected.size} imágenes seleccionadas?`)) {
             const newBoards = [];
             const newSelected = new Set();
-            const oldIndices = Array.from(cropSelected).sort((a,b)=>a-b);
+            const indices = Array.from(cropSelected).sort((a,b)=>a-b);
             let shift = 0;
             window.cropBoards.forEach((board, idx) => {
-                if (cropSelected.has(idx)) {
-                    shift++;
-                } else {
+                if (cropSelected.has(idx)) { shift++; }
+                else {
                     const newIdx = idx - shift;
                     newBoards.push(board);
-                    if (cropSelected.has(idx)) {
-                        newSelected.add(newIdx);
-                    }
+                    if (cropSelected.has(idx)) newSelected.add(newIdx);
                 }
             });
             window.cropBoards = newBoards;
@@ -453,45 +580,33 @@
             window.showNotification('Imágenes eliminadas.');
         }
     });
-
-    // ---------- ELIMINAR TODAS ----------
-    cropClearAll.addEventListener('click', function() {
+    cropClearAll.addEventListener('click', () => {
         if (confirm('¿Eliminar todos los recortes?')) {
             window.cropBoards = [];
             cropSelected.clear();
             renderCropGallery();
-            window.showNotification('Todos los recortes eliminados');
+            window.showNotification('Todos los recortes eliminados.');
         }
     });
-
-    // ---------- DESCARGAR TODAS ----------
-    cropDownloadAllBtn.addEventListener('click', function() {
-        if (window.cropBoards.length === 0) {
-            window.showNotification('No hay recortes para descargar', true);
-            return;
-        }
+    cropDownloadAllBtn.addEventListener('click', () => {
+        if (window.cropBoards.length === 0) { window.showNotification('No hay recortes.', true); return; }
         window.cropBoards.forEach((board, idx) => {
             setTimeout(() => {
-                addTurnCircle(board.dataUrl, board.turno, (finalUrl) => {
-                    const link = document.createElement('a');
-                    link.href = finalUrl;
-                    link.download = `tablero_${idx+1}${board.turno ? '_'+board.turno : ''}.jpg`;
-                    link.click();
-                });
+                const link = document.createElement('a');
+                link.href = board.dataUrl;
+                link.download = `tablero_${idx+1}${board.turno ? '_'+board.turno : ''}.jpg`;
+                link.click();
             }, idx * 200);
         });
-        window.showNotification('Descargando todas las imágenes...');
+        window.showNotification('Descargando todas...');
     });
-
-    // ---------- TOGGLE CÍRCULO ----------
     cropToggleCircle.addEventListener('change', function() {
         includeCircleInDownload = this.checked;
-        window.showNotification(includeCircleInDownload ? 'Círculo de turno activado' : 'Círculo de turno desactivado');
+        window.showNotification(includeCircleInDownload ? 'Círculo activado' : 'Círculo desactivado');
     });
 
-    // Exponer funciones para otros módulos
     window.renderCropGallery = renderCropGallery;
     window.getCropBoards = () => window.cropBoards;
 
-    initCropBox();
+    initCropEditor();
 })();
