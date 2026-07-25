@@ -279,6 +279,34 @@ th { background: #f2f2f2; font-weight: 600; }
 .notification.show { opacity: 1; }
 .notification.error { background: #e74c3c; }
 
+/* ===== CONTENEDOR DE RECUADROS ===== */
+#cropBoxesContainer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 5;
+}
+.crop-box {
+    position: absolute;
+    border: 2px solid #f1c40f;
+    background: rgba(52, 152, 219, 0.15);
+    cursor: move;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3);
+    pointer-events: auto;
+}
+.resize-handle {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: #f1c40f;
+    border-radius: 50%;
+    border: 1px solid white;
+    pointer-events: auto;
+}
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
     .app-container { padding: 15px; }
