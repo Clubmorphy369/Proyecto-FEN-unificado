@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (VERSIÓN CORREGIDA)
+// MÓDULO 2: RECORTE MANUAL (CORREGIDO – ALINEACIÓN + SIN PANTALLA NEGRA)
 // ============================================
 (function() {
     'use strict';
@@ -64,7 +64,7 @@
     let currentPdfPage = 0;
     let pagePatterns = {};
 
-    // ============ FUNCIÓN DE ESCALA ============
+    // ============ FUNCIÓN DE ESCALA Y OFFSET ============
     function getScale() {
         if (!cropOriginalWidth || !cropOriginalHeight) return 1;
         const rect = imageToCrop.getBoundingClientRect();
@@ -73,13 +73,24 @@
         return displayWidth / cropOriginalWidth;
     }
 
+    function getImageOffset() {
+        // Devuelve la posición de la imagen dentro del contenedor
+        const containerRect = cropContainer.getBoundingClientRect();
+        const imageRect = imageToCrop.getBoundingClientRect();
+        return {
+            left: imageRect.left - containerRect.left,
+            top: imageRect.top - containerRect.top
+        };
+    }
+
     // ============ ACTUALIZAR VISUAL DE RECUADROS ============
     function updateCropBoxesVisual() {
         const scale = getScale();
+        const offset = getImageOffset();
         cropBoxes.forEach((boxObj, idx) => {
             const el = boxObj.element;
-            el.style.left = (boxObj.x * scale) + 'px';
-            el.style.top = (boxObj.y * scale) + 'px';
+            el.style.left = (offset.left + boxObj.x * scale) + 'px';
+            el.style.top = (offset.top + boxObj.y * scale) + 'px';
             el.style.width = (boxObj.w * scale) + 'px';
             el.style.height = (boxObj.h * scale) + 'px';
             el.style.borderColor = (idx === activeCropIndex) ? '#2ecc71' : '#f1c40f';
@@ -107,19 +118,14 @@
 
         const box = document.createElement('div');
         box.className = 'crop-box';
-        const index = cropBoxes.length;
-        box.dataset.index = index;
+        box.dataset.index = cropBoxes.length;
+        // Estilos base (posición se actualizará en updateCropBoxesVisual)
         box.style.cssText = `
             position: absolute;
             border: 2px solid #f1c40f;
             background: rgba(52,152,219,0.15);
             cursor: move;
-            box-shadow: 0 0 0 9999px rgba(0,0,0,0.3);
             pointer-events: auto;
-            left: ${x * getScale()}px;
-            top: ${y * getScale()}px;
-            width: ${w * getScale()}px;
-            height: ${h * getScale()}px;
         `;
 
         // Manejadores de redimensionamiento (esquinas)
@@ -178,7 +184,7 @@
         cropBoxes.push(boxObj);
         activeCropIndex = cropBoxes.length - 1;
 
-        // Evento de arrastre (mover) – CORREGIDO
+        // Evento de arrastre (mover)
         box.addEventListener('mousedown', (e) => {
             if (e.target.classList.contains('resize-handle') || e.target === deleteBtn) return;
             e.stopPropagation();
@@ -196,7 +202,7 @@
             box.style.borderWidth = '3px';
         });
 
-        // Eventos de redimensionamiento – CORREGIDO
+        // Eventos de redimensionamiento
         box.querySelectorAll('.resize-handle').forEach(handle => {
             handle.addEventListener('mousedown', (e) => {
                 e.stopPropagation();
@@ -639,7 +645,6 @@
 
     // ============ EVENTOS DE PDF ============
     if (pdfPrevPageBtn) pdfPrevPageBtn.addEventListener('click', () => {
-        // Guardar patrón actual antes de cambiar
         if (cropBoxes.length > 0 && currentPdfPage >= 0) {
             pagePatterns[currentPdfPage] = getCropPattern();
         }
