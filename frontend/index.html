@@ -4,31 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ChessSuite - Herramienta todo en uno</title>
-    <!-- Librerías externas -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Estilos propios -->
     <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-
 <div class="app-container">
     <header class="app-header">
         <h1><i class="fas fa-chess-king"></i> ChessSuite</h1>
         <p>Extracción automática de FEN · Recorte manual · Generación de PDF · Exportación a Lichess</p>
     </header>
 
-    <!-- PESTAÑAS -->
     <div class="tabs">
         <button class="tab-btn active" data-tab="tab-auto"><i class="fas fa-robot"></i> Extracción automática</button>
         <button class="tab-btn" data-tab="tab-crop"><i class="fas fa-crop-alt"></i> Recorte manual</button>
         <button class="tab-btn" data-tab="tab-pdf"><i class="fas fa-file-pdf"></i> Generar PDF</button>
     </div>
 
-    <!-- ============================================ -->
-    <!-- PESTAÑA 1: EXTRACCIÓN AUTOMÁTICA -->
-    <!-- ============================================ -->
+    <!-- PESTAÑA 1 -->
     <div id="tab-auto" class="tab-content active">
         <div class="card">
             <div class="card-title"><i class="fas fa-upload"></i> Subir imágenes o PDFs</div>
@@ -49,9 +43,7 @@
         <div id="autoResults" class="table-wrapper"></div>
     </div>
 
-    <!-- ============================================ -->
-    <!-- PESTAÑA 2: RECORTE MANUAL -->
-    <!-- ============================================ -->
+    <!-- PESTAÑA 2 -->
     <div id="tab-crop" class="tab-content">
         <div class="card">
             <div class="card-title"><i class="fas fa-upload"></i> Subir imágenes para recortar</div>
@@ -60,36 +52,28 @@
             <div id="cropCounter" style="margin-top:8px; font-weight:500;"></div>
         </div>
 
-        <!-- Editor de recorte -->
         <div id="cropEditor" class="card" style="display:none;">
             <div class="card-title"><i class="fas fa-crop-alt"></i> Ajustar recorte</div>
-            <!-- Solo dejamos la opción de mostrar cuadrícula -->
-            <div style="display:flex; align-items:center; gap:15px; margin-bottom:10px;">
-                <label style="display:inline-flex; align-items:center; gap:5px; color:#333;">
-                    <input type="checkbox" id="gridToggle" checked> Mostrar cuadrícula
-                </label>
-            </div>
+            <label style="display:inline-flex; align-items:center; gap:5px; margin-bottom:10px;">
+                <input type="checkbox" id="gridToggle" checked> Mostrar cuadrícula
+            </label>
             <div id="cropContainer">
                 <img id="imageToCrop" style="max-width:100%; display:block; margin:0 auto;">
-                <div id="gridOverlay" style="position:absolute; top:0; left:0; pointer-events:none; z-index:3; display:block;"></div>
+                <div id="gridOverlay" style="position:absolute; top:0; left:0; pointer-events:none; z-index:3;"></div>
                 <div id="cropBoxesContainer" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:5;"></div>
             </div>
 
-            <!-- CONTROLES PARA PDF (solo los necesarios) -->
             <div id="pdfControls" style="display:none; margin:10px 0; padding:10px; background:#2d2d2d; border-radius:6px; flex-wrap:wrap; align-items:center; gap:8px;">
                 <button id="pdfPrevPageBtn" class="btn">⬅ Anterior</button>
                 <span id="pdfPageCounter" style="color:#ddd; margin:0 10px;">Página 1 de 1</span>
                 <button id="pdfNextPageBtn" class="btn">Siguiente ➡</button>
                 <button id="addCropBoxBtn" class="btn" style="background:#9b59b6;">➕ Añadir recuadro</button>
-                <button id="autoSnapBtn" class="btn" style="background:#16a085;">🧲 Auto‑ajustar a regla</button>
+                <button id="autoSnapBtn" class="btn" style="background:#16a085;">🧲 Auto‑ajustar</button>
                 <button id="pdfSavePatternBtn" class="btn btn-warning">Guardar patrón</button>
             </div>
 
-            <!-- BOTONES DE ACCIÓN -->
             <div style="display:flex; flex-wrap:wrap; gap:12px; margin:15px 0; padding:12px; background:#f0f4f8; border-radius:8px;">
-                <button id="cropSaveBtn" class="btn btn-success" style="font-size:1.1rem; padding:12px 24px;">
-                    <i class="fas fa-save"></i> Guardar recorte actual
-                </button>
+                <button id="cropSaveBtn" class="btn btn-success" style="font-size:1.1rem; padding:12px 24px;"><i class="fas fa-save"></i> Guardar recorte actual</button>
                 <button id="cropPrevBtn" class="btn" disabled><i class="fas fa-chevron-left"></i> Anterior</button>
                 <button id="cropNextBtn" class="btn" disabled>Siguiente <i class="fas fa-chevron-right"></i></button>
             </div>
@@ -98,7 +82,6 @@
             </div>
         </div>
 
-        <!-- Galería -->
         <div id="cropGallery" class="card" style="display:none;">
             <div class="card-title">
                 <i class="fas fa-images"></i> Galería de recortes
@@ -107,55 +90,36 @@
             <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; align-items:center;">
                 <button id="cropSelectAll" class="btn btn-sm">Seleccionar todo</button>
                 <button id="cropDeselectAll" class="btn btn-sm">Deseleccionar</button>
-                <button id="cropDeleteSelectedBtn" class="btn btn-sm btn-danger">
-                    <i class="fas fa-trash"></i> Eliminar seleccionados
-                </button>
-                <button id="cropClearAll" class="btn btn-sm btn-danger">
-                    <i class="fas fa-trash"></i> Eliminar todos
-                </button>
+                <button id="cropDeleteSelectedBtn" class="btn btn-sm btn-danger"><i class="fas fa-trash"></i> Eliminar seleccionados</button>
+                <button id="cropClearAll" class="btn btn-sm btn-danger"><i class="fas fa-trash"></i> Eliminar todos</button>
                 <button id="cropBatchWhite" class="btn btn-sm btn-success"><i class="fas fa-circle" style="color:white; text-shadow:0 0 1px black;"></i> Blancas (seleccionados)</button>
                 <button id="cropBatchBlack" class="btn btn-sm btn-dark"><i class="fas fa-circle" style="color:black;"></i> Negras (seleccionados)</button>
-                <button id="cropDownloadAllBtn" class="btn btn-sm btn-success">
-                    <i class="fas fa-download"></i> Descargar todas
-                </button>
-                <div style="display:flex; align-items:center; gap:6px; margin-left:10px;">
+                <button id="cropDownloadAllBtn" class="btn btn-sm btn-success"><i class="fas fa-download"></i> Descargar todas</button>
+                <label style="display:inline-flex; align-items:center; gap:6px; margin-left:10px;">
                     <input type="checkbox" id="cropToggleCircle" checked>
-                    <label for="cropToggleCircle" style="font-size:0.9rem;">Incluir círculo de turno</label>
-                </div>
+                    <span style="font-size:0.9rem;">Incluir círculo de turno</span>
+                </label>
             </div>
             <div id="cropGalleryGrid" class="gallery"></div>
         </div>
     </div>
 
-    <!-- ============================================ -->
-    <!-- PESTAÑA 3: GENERAR PDF -->
-    <!-- ============================================ -->
+    <!-- PESTAÑA 3 -->
     <div id="tab-pdf" class="tab-content">
         <div class="card">
             <div class="card-title"><i class="fas fa-file-pdf"></i> Generar PDF con ejercicios</div>
-            <p>Los tableros de la galería de recorte manual se usarán para generar el PDF (máximo 6 por página).</p>
-            <div class="form-group">
-                <label>Encabezado (opcional):</label>
-                <input type="text" id="pdfHeader" placeholder="Mi título">
-            </div>
-            <div class="form-group">
-                <label>Pie de página (opcional):</label>
-                <input type="text" id="pdfFooter" placeholder="Pie de página">
-            </div>
+            <p>Los tableros de la galería se usarán para el PDF (máx. 6 por página).</p>
+            <div class="form-group"><label>Encabezado:</label><input type="text" id="pdfHeader" placeholder="Mi título"></div>
+            <div class="form-group"><label>Pie de página:</label><input type="text" id="pdfFooter" placeholder="Pie de página"></div>
             <button id="pdfGenerateBtn" class="btn btn-success"><i class="fas fa-download"></i> Generar y descargar PDF</button>
             <div id="pdfStatus" style="margin-top:10px; font-weight:500;"></div>
         </div>
         <div id="pdfPreview" class="pdf-preview"></div>
     </div>
 </div>
-
-<!-- NOTIFICACIÓN -->
 <div id="notification" class="notification"></div>
-
-<!-- SCRIPTS -->
 <script src="/scripts/main.js"></script>
 <script src="/scripts/crop-editor.js"></script>
 <script src="/scripts/pdf-generator.js"></script>
-
 </body>
 </html>
