@@ -1,10 +1,6 @@
-// ============================================
-// MÓDULO PRINCIPAL: PESTAÑAS, EXTRACCIÓN AUTOMÁTICA, EXPORTACIÓN PGN
-// ============================================
 (function() {
     'use strict';
 
-    // ---------- UTILIDAD GLOBAL ----------
     window.showNotification = function(msg, isError = false) {
         const el = document.getElementById('notification');
         if (!el) return;
@@ -15,7 +11,6 @@
         el._timeout = setTimeout(() => el.classList.remove('show'), 3000);
     };
 
-    // ---------- PESTAÑAS ----------
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', function() {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -28,9 +23,6 @@
         });
     });
 
-    // ============================================
-    // MÓDULO 1: EXTRACCIÓN AUTOMÁTICA
-    // ============================================
     const autoFileInput = document.getElementById('autoFileInput');
     const autoPages = document.getElementById('autoPages');
     const autoProcessBtn = document.getElementById('autoProcessBtn');
@@ -42,9 +34,8 @@
     const configPdfCropBtn = document.getElementById('configPdfCropBtn');
 
     let autoData = [];
-    let autoFens = new Set(); // Para deduplicación
+    let autoFens = new Set();
 
-    // ---------- FUNCIÓN PARA ALTERNAR TURNO ----------
     function toggleTurn(fen) {
         const parts = fen.split(' ');
         if (parts.length >= 3) {
@@ -54,7 +45,6 @@
         return fen;
     }
 
-    // ---------- FUNCIÓN PARA FORZAR UN TURNO EN EL FEN ----------
     function setTurnInFen(fen, turnoChar) {
         const parts = fen.split(' ');
         if (parts.length >= 3) {
@@ -64,7 +54,6 @@
         return fen;
     }
 
-    // ---------- FUNCIÓN PARA AÑADIR RESULTADOS (CON DEDUPLICACIÓN) ----------
     function addResultsToAutoData(newResults) {
         if (!newResults || !newResults.length) return 0;
         let addedCount = 0;
@@ -83,7 +72,6 @@
         return addedCount;
     }
 
-    // ---------- FUNCIÓN PARA RENDERIZAR LA TABLA ----------
     function renderAutoResults() {
         if (!autoData || autoData.length === 0) {
             autoResults.innerHTML = '<p>No hay resultados. Sube imágenes o procesa recortes desde la galería.</p>';
@@ -93,12 +81,7 @@
 
         let html = `<table>
             <thead><tr>
-                <th>Archivo</th>
-                <th>Página</th>
-                <th>FEN</th>
-                <th>Miniatura</th>
-                <th style="width:40px;">Turno</th>
-                <th style="width:40px;">Acción</th>
+                <th>Archivo</th><th>Página</th><th>FEN</th><th>Miniatura</th><th style="width:40px;">Turno</th><th style="width:40px;">Acción</th>
             </tr></thead><tbody>`;
 
         for (let i = 0; i < autoData.length; i++) {
@@ -123,13 +106,11 @@
         html += '</tbody></table>';
         autoResults.innerHTML = html;
 
-        // Eventos para 🔄
         document.querySelectorAll('.btn-toggle-turn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const index = parseInt(this.getAttribute('data-index'));
                 const currentFen = this.getAttribute('data-fen');
                 if (isNaN(index) || !currentFen) return;
-
                 const newFen = toggleTurn(currentFen);
                 autoData[index].fen = newFen;
                 document.getElementById(`fen-cell-${index}`).textContent = newFen;
@@ -142,40 +123,34 @@
             });
         });
 
-        // Eventos para ✂️
         document.querySelectorAll('.btn-copy-fen').forEach(btn => {
             btn.addEventListener('click', function() {
                 const fen = this.getAttribute('data-fen');
                 const index = parseInt(this.getAttribute('data-index'));
                 if (!fen || isNaN(index)) return;
-
                 navigator.clipboard.writeText(fen).then(() => {
                     if (autoData[index]?.fen) autoFens.delete(autoData[index].fen);
                     autoData.splice(index, 1);
                     renderAutoResults();
                     updateExportButtonState();
                     window.showNotification('FEN copiado y eliminado');
-                }).catch(err => {
-                    window.showNotification('Error: ' + err.message, true);
-                });
+                }).catch(err => { window.showNotification('Error: ' + err.message, true); });
             });
         });
 
         updateExportButtonState();
     }
 
-    // ---------- ACTUALIZAR ESTADO DEL BOTÓN EXPORTAR ----------
     function updateExportButtonState() {
         const hasFens = autoData.some(item => item.fen);
         autoExportPgnBtn.disabled = !hasFens;
     }
 
-    // ---------- OBTENER LISTA DE FEN PARA EXPORTAR ----------
     function getFensForExport() {
         return autoData.filter(item => item.fen).map(item => item.fen);
     }
 
-    // ---------- PROCESAR ARCHIVOS SUBIDOS DIRECTAMENTE ----------
+    // PROCESAR archivos directamente
     autoProcessBtn.addEventListener('click', async function() {
         const files = autoFileInput.files;
         if (!files.length) {
@@ -186,14 +161,6 @@
         for (const f of files) formData.append('files', f);
         formData.append('pages', autoPages.value);
 
-        // Incluir patrones de recorte si existen
-        if (window.getPdfPatterns && typeof window.getPdfPatterns === 'function') {
-            const patterns = window.getPdfPatterns();
-            if (patterns && Object.keys(patterns).length > 0) {
-                formData.append('page_patterns', JSON.stringify(patterns));
-            }
-        }
-
         autoStatus.textContent = 'Procesando archivos...';
         autoProcessBtn.disabled = true;
 
@@ -201,7 +168,6 @@
             const resp = await fetch('/upload', { method: 'POST', body: formData });
             const data = await resp.json();
             if (!data.success) throw new Error(data.error || 'Error en el servidor');
-
             const newResults = data.results || [];
             const added = addResultsToAutoData(newResults);
             autoStatus.textContent = `Se añadieron ${added} nuevos elementos. Total: ${autoData.length} elementos.`;
@@ -213,15 +179,14 @@
         }
     });
 
-    // ---------- PROCESAR RECORTES DESDE LA GALERÍA ----------
+    // PROCESAR recortes desde galería
     processGalleryBtn.addEventListener('click', async function() {
         const boards = window.cropBoards || [];
         if (!boards.length) {
             window.showNotification('No hay recortes en la galería.', true);
             return;
         }
-
-        autoStatus.textContent = `Procesando ${boards.length} recortes desde la galería...`;
+        autoStatus.textContent = `Procesando ${boards.length} recortes...`;
         processGalleryBtn.disabled = true;
 
         const newResults = [];
@@ -229,9 +194,7 @@
             const board = boards[i];
             try {
                 let imageData = board.dataUrl;
-                if (imageData.startsWith('data:image')) {
-                    imageData = imageData.split(',')[1];
-                }
+                if (imageData.startsWith('data:image')) imageData = imageData.split(',')[1];
                 const resp = await fetch('/upload-crop', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -252,93 +215,56 @@
                         error: null
                     });
                 } else {
-                    newResults.push({
-                        original_filename: `Recorte ${i+1}`,
-                        file: `recorte_${i+1}`,
-                        fen: null,
-                        thumbnail: null,
-                        error: data.error || 'Error al procesar'
-                    });
+                    newResults.push({ original_filename: `Recorte ${i+1}`, file: `recorte_${i+1}`, fen: null, thumbnail: null, error: data.error || 'Error' });
                 }
             } catch (e) {
-                newResults.push({
-                    original_filename: `Recorte ${i+1}`,
-                    file: `recorte_${i+1}`,
-                    fen: null,
-                    thumbnail: null,
-                    error: 'Error de red: ' + e.message
-                });
+                newResults.push({ original_filename: `Recorte ${i+1}`, file: `recorte_${i+1}`, fen: null, thumbnail: null, error: 'Error de red' });
             }
         }
-
         const added = addResultsToAutoData(newResults);
         autoStatus.textContent = `Procesados ${boards.length} recortes. Añadidos ${added} nuevos FEN. Total: ${autoData.length} elementos.`;
         processGalleryBtn.disabled = false;
     });
 
-    // ---------- CONFIGURAR RECORTES PARA PDF ----------
+    // Configurar recortes para PDF
     configPdfCropBtn.addEventListener('click', async function() {
         const files = autoFileInput.files;
-        if (!files.length) {
-            window.showNotification('Selecciona un PDF primero.', true);
-            return;
-        }
+        if (!files.length) { window.showNotification('Selecciona un PDF primero.', true); return; }
         const pdfFile = files[0];
-        if (!pdfFile.name.toLowerCase().endsWith('.pdf')) {
-            window.showNotification('El archivo seleccionado no es un PDF.', true);
-            return;
-        }
+        if (!pdfFile.name.toLowerCase().endsWith('.pdf')) { window.showNotification('El archivo no es un PDF.', true); return; }
 
         const formData = new FormData();
         formData.append('file', pdfFile);
-        const pagesStr = autoPages.value || '1';
-        formData.append('pages', pagesStr);
+        formData.append('pages', autoPages.value || '1');
 
         try {
-            console.log('[DEBUG] Enviando petición a /extract-pdf-pages...');
-            const resp = await fetch('/extract-pdf-pages', {
-                method: 'POST',
-                body: formData
-            });
+            const resp = await fetch('/extract-pdf-pages', { method: 'POST', body: formData });
             const data = await resp.json();
-            console.log('[DEBUG] Respuesta:', data);
-
             if (!data.success) throw new Error(data.error || 'Error al extraer páginas');
-
-            console.log('[DEBUG] Páginas extraídas:', data.pages.length);
-
             if (typeof window.loadPdfForCrop === 'function') {
-                console.log('[DEBUG] Llamando a loadPdfForCrop');
                 window.loadPdfForCrop(data.pages);
                 document.querySelector('.tab-btn[data-tab="tab-crop"]').click();
-                window.showNotification(`PDF cargado. Páginas: ${data.pages.length} de ${data.total}.`);
+                window.showNotification(`PDF cargado. Páginas: ${data.pages.length}.`);
             } else {
-                console.error('[ERROR] loadPdfForCrop no está definida');
-                window.showNotification('Error: Editor de recorte no disponible.', true);
+                window.showNotification('Editor de recorte no disponible.', true);
             }
         } catch (e) {
-            console.error('[ERROR] configPdfCropBtn:', e);
             window.showNotification('Error: ' + e.message, true);
         }
     });
 
-    // ---------- LIMPIAR RESULTADOS ----------
     if (clearAutoResultsBtn) {
         clearAutoResultsBtn.addEventListener('click', function() {
-            if (confirm('¿Eliminar todos los resultados de la pestaña 1?')) {
+            if (confirm('¿Eliminar todos los resultados?')) {
                 window.clearAutoData();
                 window.showNotification('Resultados eliminados');
             }
         });
     }
 
-    // ---------- EXPORTAR PGN ----------
     autoExportPgnBtn.addEventListener('click', async function() {
         const fens = getFensForExport();
-        if (!fens.length) {
-            window.showNotification('No hay FEN válidos para exportar.', true);
-            return;
-        }
+        if (!fens.length) { window.showNotification('No hay FEN para exportar.', true); return; }
         const studyName = prompt('Nombre del estudio:', 'Mi Estudio') || 'Mi Estudio';
         const user = prompt('Usuario de Lichess:', 'Anónimo') || 'Anónimo';
         try {
@@ -351,17 +277,12 @@
             const blob = await resp.blob();
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url;
-            a.download = 'fen_study.pgn';
-            a.click();
+            a.href = url; a.download = 'fen_study.pgn'; a.click();
             URL.revokeObjectURL(url);
             window.showNotification('PGN descargado');
-        } catch (e) {
-            window.showNotification('Error: ' + e.message, true);
-        }
+        } catch (e) { window.showNotification('Error: ' + e.message, true); }
     });
 
-    // ---------- EXPONER FUNCIONES PARA OTROS MÓDULOS ----------
     window.getAutoFens = getFensForExport;
     window.getAutoData = () => autoData;
     window.clearAutoData = () => {
@@ -371,7 +292,5 @@
         updateExportButtonState();
     };
 
-    // Inicializar
     renderAutoResults();
-
 })();
