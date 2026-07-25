@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (CON CUADRÍCULA Y HERENCIA DE TAMAÑO)
+// MÓDULO 2: RECORTE MANUAL (CUADRÍCULA VISIBLE Y DPI UNIFICADO)
 // ============================================
 (function() {
     'use strict';
@@ -86,7 +86,7 @@
         return { width: rect.width, height: rect.height };
     }
 
-    // ============ CUADRÍCULA ============
+    // ============ CUADRÍCULA (REGLAS VISIBLES) ============
     function updateGrid() {
         if (!gridOverlay || !gridToggle) return;
         const visible = gridToggle.checked;
@@ -102,14 +102,14 @@
         gridOverlay.style.width = size.width + 'px';
         gridOverlay.style.height = size.height + 'px';
 
-        // Crear líneas de cuadrícula usando gradientes
-        // Líneas cada 10% del ancho/alto de la imagen
+        // Líneas cada 10% del ancho/alto, color cian visible
         gridOverlay.style.backgroundImage = `
-            linear-gradient(to right, rgba(255,255,255,0.4) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(255,255,255,0.4) 1px, transparent 1px)
+            linear-gradient(to right, rgba(0, 255, 255, 0.6) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(0, 255, 255, 0.6) 1px, transparent 1px)
         `;
         gridOverlay.style.backgroundSize = '10% 10%';
         gridOverlay.style.backgroundPosition = '0 0';
+        gridOverlay.style.border = '1px solid rgba(0,255,255,0.3)'; // borde de referencia
     }
 
     // ============ ACTUALIZAR RECUADROS Y CUADRÍCULA ============
@@ -697,6 +697,9 @@
     if (gridToggle) {
         gridToggle.addEventListener('change', updateGrid);
     }
+    window.addEventListener('resize', () => {
+        updateCropBoxesVisual(); // actualiza también la cuadrícula
+    });
 
     // ============ INICIALIZAR ============
     function initCropEditor() {
