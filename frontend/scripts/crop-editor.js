@@ -59,9 +59,8 @@
     let currentPdfPage = 0;
     let pagePatterns = {};
 
-    // ---------- INICIALIZAR EDITOR (MEJORADO) ----------
+    // ---------- INICIALIZAR EDITOR ----------
     function initCropEditor() {
-        // Usar el contenedor existente en el HTML
         const container = document.getElementById('cropBoxesContainer');
         if (container) {
             container.innerHTML = '';
@@ -75,7 +74,6 @@
         } else {
             console.error('No se encontró cropBoxesContainer en el DOM');
         }
-        // Asegurar que cropContainer tenga posición relativa
         if (cropContainer) {
             cropContainer.style.position = 'relative';
         }
@@ -104,7 +102,6 @@
             height: ${h}px;
         `;
 
-        // Handles
         ['nw', 'ne', 'sw', 'se'].forEach(dir => {
             const handle = document.createElement('div');
             handle.className = `resize-handle resize-${dir}`;
@@ -222,7 +219,7 @@
         });
     }
 
-    // ---------- EVENTOS DE MOUSE PARA ARRASTRAR/REDIMENSIONAR ----------
+    // ---------- EVENTOS DE MOUSE ----------
     document.addEventListener('mousemove', (e) => {
         if (!isDragging && !isResizing) return;
         if (activeCropIndex < 0 || activeCropIndex >= cropBoxes.length) return;
@@ -404,10 +401,15 @@
 
     // ---------- FUNCIONES PARA PDF ----------
     function loadPdfPage(pageIndex) {
-        if (!pdfPages.length || pageIndex < 0 || pageIndex >= pdfPages.length) return;
+        console.log('[DEBUG] loadPdfPage llamado para página', pageIndex);
+        if (!pdfPages.length || pageIndex < 0 || pageIndex >= pdfPages.length) {
+            console.error('[DEBUG] pdfPages vacío o índice inválido');
+            return;
+        }
         currentPdfPage = pageIndex;
         const img = new Image();
         img.onload = function() {
+            console.log('[DEBUG] Imagen de página cargada correctamente');
             cropOriginalImage = img;
             cropOriginalWidth = img.width;
             cropOriginalHeight = img.height;
@@ -416,7 +418,7 @@
             if (pagePatterns[pageIndex]) {
                 pagePatterns[pageIndex].forEach(box => addCropBox(box.x, box.y, box.w, box.h));
             } else {
-                // Patrón por defecto: grid 3x2 con margen dinámico
+                // Patrón por defecto: grid 3x2 con margen
                 const cols = 2, rows = 3;
                 const cellW = Math.floor(img.width / cols);
                 const cellH = Math.floor(img.height / rows);
@@ -435,6 +437,9 @@
             if (pdfPrevPageBtn) pdfPrevPageBtn.disabled = pageIndex === 0;
             if (pdfNextPageBtn) pdfNextPageBtn.disabled = pageIndex === pdfPages.length - 1;
             cropSaveBtn.disabled = false;
+        };
+        img.onerror = function(e) {
+            console.error('[DEBUG] Error al cargar la imagen:', e);
         };
         img.src = pdfPages[pageIndex];
     }
@@ -473,6 +478,7 @@
 
     // ---------- EXPONER FUNCIONES ----------
     window.loadPdfForCrop = function(pagesData) {
+        console.log('[DEBUG] loadPdfForCrop llamado con', pagesData.length, 'páginas');
         if (!pagesData || !pagesData.length) {
             window.showNotification('No se recibieron páginas del PDF.', true);
             return;
@@ -626,6 +632,5 @@
     window.renderCropGallery = renderCropGallery;
     window.getCropBoards = () => window.cropBoards;
 
-    // Inicializar
     initCropEditor();
 })();
