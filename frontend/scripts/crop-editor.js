@@ -1,10 +1,10 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL CON SOPORTE PARA PDF (VERSIÓN FINAL CORREGIDA)
+// MÓDULO 2: RECORTE MANUAL CON SOPORTE PARA PDF (VERSIÓN DEFINITIVA)
 // ============================================
 (function() {
     'use strict';
 
-    // DOM ELEMENTS
+    // ===== DOM ELEMENTS =====
     const cropFileInput = document.getElementById('cropFileInput');
     const cropLoadBtn = document.getElementById('cropLoadBtn');
     const cropCounter = document.getElementById('cropCounter');
@@ -38,7 +38,7 @@
     const pdfPageCounter = document.getElementById('pdfPageCounter');
     const addCropBoxBtn = document.getElementById('addCropBoxBtn');
 
-    // VARIABLES GLOBALES
+    // ===== ESTADO GLOBAL =====
     let cropImages = [];
     let cropIndex = 0;
     window.cropBoards = [];
@@ -48,19 +48,19 @@
     let cropOriginalWidth = 0, cropOriginalHeight = 0;
     let includeCircleInDownload = true;
 
-    // Variables para recuadros (coordenadas en píxeles de la imagen original)
+    // Recuadros (coordenadas en píxeles de la imagen original)
     let cropBoxes = [];
     let activeCropIndex = -1;
     let isDragging = false, isResizing = false, resizeDir = null;
-    let startMouseX, startMouseY;
-    let startBoxX, startBoxY, startBoxW, startBoxH;
+    let startX = 0, startY = 0;
+    let startBoxX = 0, startBoxY = 0, startBoxW = 0, startBoxH = 0;
 
-    // Variables para PDF
+    // PDF
     let pdfPages = [];
     let currentPdfPage = 0;
     let pagePatterns = {};
 
-    // ============ FUNCIÓN PARA CALCULAR LA ESCALA ============
+    // ===== FUNCIÓN PARA CALCULAR LA ESCALA =====
     function getScale() {
         if (!cropOriginalWidth || !cropOriginalHeight) return 1;
         const rect = imageToCrop.getBoundingClientRect();
@@ -69,7 +69,7 @@
         return displayWidth / cropOriginalWidth;
     }
 
-    // ============ ACTUALIZAR POSICIÓN VISUAL DE RECUADROS ============
+    // ===== ACTUALIZAR POSICIÓN VISUAL DE RECUADROS =====
     function updateCropBoxesVisual() {
         const scale = getScale();
         cropBoxes.forEach((box, idx) => {
@@ -83,12 +83,11 @@
         });
     }
 
-    // ============ CREAR UN NUEVO RECUADRO ============
+    // ===== CREAR UN NUEVO RECUADRO =====
     function addCropBox(x, y, w, h) {
         const container = document.getElementById('cropBoxesContainer');
         if (!container) return;
 
-        // Redondear y validar
         x = Math.round(x);
         y = Math.round(y);
         w = Math.round(w);
@@ -105,7 +104,7 @@
         box.className = 'crop-box';
         box.dataset.index = cropBoxes.length;
 
-        // Estilos iniciales (se actualizarán con updateCropBoxesVisual)
+        // Estilos básicos (la posición la dará updateCropBoxesVisual)
         box.style.cssText = `
             position: absolute;
             border: 2px solid #f1c40f;
@@ -115,7 +114,7 @@
             pointer-events: auto;
         `;
 
-        // Añadir manejadores de redimensionamiento (esquinas)
+        // Manejadores de redimensionamiento (esquinas)
         ['nw', 'ne', 'sw', 'se'].forEach(dir => {
             const handle = document.createElement('div');
             handle.className = `resize-handle resize-${dir}`;
@@ -173,8 +172,8 @@
             e.preventDefault();
             activeCropIndex = cropBoxes.findIndex(b => b.element === box);
             isDragging = true;
-            startMouseX = e.clientX;
-            startMouseY = e.clientY;
+            startX = e.clientX;
+            startY = e.clientY;
             startBoxX = box.x;
             startBoxY = box.y;
             box.style.borderColor = '#2ecc71';
@@ -189,8 +188,8 @@
                 activeCropIndex = cropBoxes.findIndex(b => b.element === box);
                 isResizing = true;
                 resizeDir = handle.className.split(' ')[1].replace('resize-', '');
-                startMouseX = e.clientX;
-                startMouseY = e.clientY;
+                startX = e.clientX;
+                startY = e.clientY;
                 startBoxX = box.x;
                 startBoxY = box.y;
                 startBoxW = box.w;
@@ -206,7 +205,7 @@
         updateCropBoxesVisual();
     }
 
-    // ============ LIMPIAR RECUADROS ============
+    // ===== LIMPIAR RECUADROS =====
     function clearCropBoxes() {
         const container = document.getElementById('cropBoxesContainer');
         if (container) container.innerHTML = '';
@@ -223,15 +222,16 @@
         }));
     }
 
-    // ============ EVENTOS GLOBALES DE MOUSE ============
-    document.addEventListener('mousemove', (e) => {
+    // ===== EVENTOS GLOBALES DE RATÓN =====
+    // Estos eventos se añaden una sola vez al inicio y se mantienen.
+    document.addEventListener('mousemove', function(e) {
         if (!isDragging && !isResizing) return;
         if (activeCropIndex < 0 || activeCropIndex >= cropBoxes.length) return;
 
         const box = cropBoxes[activeCropIndex];
         const scale = getScale();
-        const dx = (e.clientX - startMouseX) / scale;
-        const dy = (e.clientY - startMouseY) / scale;
+        const dx = (e.clientX - startX) / scale;
+        const dy = (e.clientY - startY) / scale;
 
         if (isDragging) {
             let newX = startBoxX + dx;
@@ -259,12 +259,12 @@
         updateCropBoxesVisual();
     });
 
-    document.addEventListener('mouseup', () => {
+    document.addEventListener('mouseup', function() {
         isDragging = false;
         isResizing = false;
     });
 
-    // ============ BOTÓN: AÑADIR RECUADRO ============
+    // ===== BOTÓN: AÑADIR RECUADRO =====
     if (addCropBoxBtn) {
         addCropBoxBtn.addEventListener('click', function() {
             if (!cropOriginalWidth || !cropOriginalHeight) {
@@ -280,7 +280,7 @@
         });
     }
 
-    // ============ CARGAR IMÁGENES SUELTAS ============
+    // ===== CARGAR IMÁGENES SUELTAS =====
     cropLoadBtn.addEventListener('click', function() {
         const files = cropFileInput.files;
         if (!files.length) {
@@ -324,7 +324,7 @@
         cropNextBtn.disabled = cropIndex === cropImages.length - 1;
     }
 
-    // ============ FUNCIONES PARA PDF ============
+    // ===== FUNCIONES PARA PDF =====
     function loadPdfPage(pageIndex) {
         if (!pdfPages.length || pageIndex < 0 || pageIndex >= pdfPages.length) return;
         currentPdfPage = pageIndex;
@@ -339,7 +339,7 @@
                 if (pagePatterns[pageIndex]) {
                     pagePatterns[pageIndex].forEach(box => addCropBox(box.x, box.y, box.w, box.h));
                 } else {
-                    // Patrón por defecto: grid 3x2 con margen del 10%
+                    // Patrón por defecto: grid 3×2 con margen del 10%
                     const cols = 2, rows = 3;
                     const cellW = Math.floor(cropOriginalWidth / cols);
                     const cellH = Math.floor(cropOriginalHeight / rows);
@@ -364,7 +364,7 @@
         imgLoader.src = pdfPages[pageIndex];
     }
 
-    // ============ EXPONER FUNCIONES ============
+    // ===== EXPONER FUNCIONES =====
     window.loadPdfForCrop = function(pagesData) {
         if (!pagesData || !pagesData.length) {
             window.showNotification('No se recibieron páginas del PDF.', true);
@@ -382,7 +382,7 @@
         return pagePatterns;
     };
 
-    // ============ RENDER GALERÍA (SIN CAMBIOS) ============
+    // ===== RENDER GALERÍA =====
     function renderCropGallery() {
         cropGalleryGrid.innerHTML = '';
         cropCount.textContent = window.cropBoards.length;
@@ -445,7 +445,7 @@
         if (window.updatePdfPreview) window.updatePdfPreview();
     }
 
-    // ============ EVENTOS DE GALERÍA ============
+    // ===== EVENTOS DE GALERÍA =====
     cropSelectAll.addEventListener('click', () => {
         for (let i = 0; i < window.cropBoards.length; i++) cropSelected.add(i);
         renderCropGallery();
@@ -519,7 +519,7 @@
     window.renderCropGallery = renderCropGallery;
     window.getCropBoards = () => window.cropBoards;
 
-    // ============ PROCESAR TODAS LAS IMÁGENES (SUELTAS) ============
+    // ===== PROCESAR TODAS LAS IMÁGENES (SUELTAS) =====
     processAllBtn.addEventListener('click', function() {
         if (cropImages.length === 0 || cropBoxes.length === 0) {
             window.showNotification('Carga imágenes y ajusta recuadros primero.', true);
@@ -564,7 +564,7 @@
         processNext(0);
     });
 
-    // ============ GUARDAR RECORTE (IMÁGENES SUELTAS) ============
+    // ===== GUARDAR RECORTE (IMÁGENES SUELTAS) =====
     cropSaveBtn.addEventListener('click', function() {
         if (cropBoxes.length === 0) {
             window.showNotification('No hay recuadros.', true);
@@ -585,11 +585,11 @@
         else { cropGallery.style.display = 'block'; }
     });
 
-    // ============ NAVEGACIÓN ENTRE IMÁGENES (SUELTAS) ============
+    // ===== NAVEGACIÓN ENTRE IMÁGENES (SUELTAS) =====
     cropPrevBtn.addEventListener('click', () => { if (cropIndex > 0) { cropIndex--; loadCropImage(); } });
     cropNextBtn.addEventListener('click', () => { if (cropIndex < cropImages.length-1) { cropIndex++; loadCropImage(); } });
 
-    // ============ PLANTILLAS ============
+    // ===== PLANTILLAS =====
     cropTemplateSaveBtn.addEventListener('click', function() {
         if (!cropOriginalWidth || !cropOriginalHeight) return;
         const pattern = getCropPattern();
@@ -617,7 +617,7 @@
         window.showNotification('Plantilla aplicada.');
     });
 
-    // ============ EVENTOS DE PDF ============
+    // ===== EVENTOS DE PDF =====
     if (pdfPrevPageBtn) pdfPrevPageBtn.addEventListener('click', () => {
         if (currentPdfPage > 0) loadPdfPage(currentPdfPage - 1);
     });
@@ -649,7 +649,7 @@
         window.showNotification('Patrón aplicado a todas las páginas.');
     }
 
-    // ============ INICIALIZAR ============
+    // ===== INICIALIZAR =====
     function initCropEditor() {
         const container = document.getElementById('cropBoxesContainer');
         if (container) {
