@@ -590,7 +590,7 @@ def extract_pdf_pages():
         for page_num in selected_pages:
             print(f"[INFO] Convirtiendo página {page_num}...")
             try:
-                img = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)[0]
+                img = convert_from_bytes(file_bytes, dpi=200, first_page=page_num, last_page=page_num)[0]
                 buffer = io.BytesIO()
                 img.save(buffer, format='JPEG', quality=70)
                 b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
