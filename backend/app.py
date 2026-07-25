@@ -13,17 +13,24 @@ import traceback
 import shutil
 from datetime import datetime, timezone
 import re
+import json
 
 app = Flask(__name__)
 
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
+# Configuración
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100 MB
 UPLOAD_FOLDER = tempfile.mkdtemp()
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, '..', 'frontend')
 
+# ============================================================
+# FUNCIONES DE UTILIDAD
+# ============================================================
+
 def clean_fen(raw_fen):
+    """Limpia un FEN: reemplaza _ por espacios y trunca a 6 campos."""
     if not raw_fen:
         return None
     fen = raw_fen.replace('_', ' ')
@@ -32,112 +39,82 @@ def clean_fen(raw_fen):
         return ' '.join(parts[:6])
     return None
 
-# ===== DETECCIÓN POR LÍNEAS (HOUGH) =====
-def detect_board_by_lines(image):
-    """Detecta el tablero encontrando líneas rectas (HoughLines)."""
+# ============================================================
+# FUNCIONES DE DETECCIÓN DE TABLEROS
+# ============================================================
+
+def detect_board_chessboard(image):
+    """Detecta tablero usando findChessboardCorners (OpenCV nativo)."""
     try:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
-        lines = cv2.HoughLines(edges, 1, np.pi/180, 200)
-        if lines is None:
-            return None
-        
-        # Encontrar líneas horizontales y verticales
-        h_lines = []
-        v_lines = []
-        for rho, theta in lines[:, 0]:
-            if abs(theta - 0) < 0.2 or abs(theta - np.pi) < 0.2:  # Horizontal
-                h_lines.append((rho, theta))
-            elif abs(theta - np.pi/2) < 0.2 or abs(theta - 3*np.pi/2) < 0.2:  # Vertical
-                v_lines.append((rho, theta))
-        
-        if len(h_lines) < 2 or len(v_lines) < 2:
-            return None
-        
-        # Tomar las líneas más externas
-        h_lines.sort(key=lambda x: x[0])
-        v_lines.sort(key=lambda x: x[0])
-        
-        y1 = int(h_lines[0][0])
-        y2 = int(h_lines[-1][0])
-        x1 = int(v_lines[0][0])
-        x2 = int(v_lines[-1][0])
-        
-        # Añadir margen
-        margin = 20
-        h, w = image.shape[:2]
-        x1 = max(0, x1 - margin)
-        y1 = max(0, y1 - margin)
-        x2 = min(w, x2 + margin)
-        y2 = min(h, y2 + margin)
-        
-        if x2 - x1 > 50 and y2 - y1 > 50:
-            print("[INFO] Tablero detectado por líneas")
+        ret, corners = cv2.findChessboardCorners(gray, (8, 8), None)
+        if ret:
+            corners = corners.reshape(-1, 2)
+            x_min = int(np.min(corners[:, 0]))
+            x_max = int(np.max(corners[:, 0]))
+            y_min = int(np.min(corners[:, 1]))
+            y_max = int(np.max(corners[:, 1]))
+            margin = 15
+            h, w = image.shape[:2]
+            x1 = max(0, x_min - margin)
+            y1 = max(0, y_min - margin)
+            x2 = min(w, x_max + margin)
+            y2 = min(h, y_max + margin)
+            print("[INFO] Tablero detectado por findChessboardCorners")
             return image[y1:y2, x1:x2]
     except Exception as e:
-        print(f"[WARN] Detección por líneas falló: {e}")
+        print(f"[WARN] findChessboardCorners falló: {e}")
     return None
 
-# ===== DETECCIÓN POR CONTORNO MÁS GRANDE Y CENTRAL =====
-def detect_board_by_largest_contour(image):
-    """Encuentra el contorno más grande que esté cerca del centro."""
+def detect_board_contours(image):
+    """Detecta tablero por contornos (más tolerante)."""
     try:
         h, w = image.shape[:2]
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                       cv2.THRESH_BINARY, 11, 2)
-        kernel = np.ones((3, 3), np.uint8)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        gray_eq = clahe.apply(gray)
+        thresh = cv2.adaptiveThreshold(gray_eq, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                       cv2.THRESH_BINARY, 15, 2)
+        kernel = np.ones((5, 5), np.uint8)
         thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        if not contours:
-            return None
-        
-        # Buscar el contorno más grande cerca del centro
-        center_x, center_y = w // 2, h // 2
-        best_contour = None
-        best_score = 0
+        best_rect = None
+        max_area = 0
+        min_area = 5000
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            if area < 1000:
+            if area < min_area:
                 continue
-            # Relación de aspecto
-            x, y, w_box, h_box = cv2.boundingRect(cnt)
-            aspect = w_box / h_box
-            if aspect < 0.5 or aspect > 1.5:
-                continue
-            # Cercanía al centro
-            cx = x + w_box // 2
-            cy = y + h_box // 2
-            dist = np.sqrt((cx - center_x)**2 + (cy - center_y)**2)
-            # Puntuación: área / distancia (prioriza áreas grandes y cercanas)
-            score = area / (dist + 1)
-            if score > best_score:
-                best_score = score
-                best_contour = (x, y, w_box, h_box)
-        
-        if best_contour:
-            x, y, w_box, h_box = best_contour
-            margin = 15
+            peri = cv2.arcLength(cnt, True)
+            approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+            if len(approx) == 4:
+                x, y, w_box, h_box = cv2.boundingRect(cnt)
+                aspect = w_box / h_box
+                if 0.7 < aspect < 1.3:
+                    if area > max_area:
+                        max_area = area
+                        best_rect = (x, y, w_box, h_box)
+        if best_rect:
+            x, y, w_box, h_box = best_rect
+            margin = 10
             x1 = max(0, x - margin)
             y1 = max(0, y - margin)
             x2 = min(w, x + w_box + margin)
             y2 = min(h, y + h_box + margin)
-            print("[INFO] Tablero detectado por contorno más grande")
+            print("[INFO] Tablero detectado por contornos")
             return image[y1:y2, x1:x2]
     except Exception as e:
-        print(f"[WARN] Detección por contorno falló: {e}")
+        print(f"[WARN] Contornos falló: {e}")
     return None
 
-# ===== DETECCIÓN POR COLOR MEJORADA =====
 def detect_board_by_color(image):
+    """Detecta tablero por color (casillas claras y oscuras)."""
     try:
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        # Rango más amplio para casillas claras
         lower_light = np.array([0, 0, 100])
         upper_light = np.array([180, 80, 255])
         mask_light = cv2.inRange(hsv, lower_light, upper_light)
-        # Rango más amplio para casillas oscuras
         lower_dark = np.array([0, 0, 0])
         upper_dark = np.array([180, 255, 80])
         mask_dark = cv2.inRange(hsv, lower_dark, upper_dark)
@@ -177,46 +154,56 @@ def detect_board_by_color(image):
         print(f"[WARN] Detección por color falló: {e}")
     return None
 
-# ===== DETECCIÓN POR CHESSBOARD CORNERS =====
-def detect_board_chessboard(image):
+def detect_board_by_lines(image):
+    """Detecta tablero por líneas rectas (HoughLines)."""
     try:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        ret, corners = cv2.findChessboardCorners(gray, (8, 8), None)
-        if ret:
-            corners = corners.reshape(-1, 2)
-            x_min = int(np.min(corners[:, 0]))
-            x_max = int(np.max(corners[:, 0]))
-            y_min = int(np.min(corners[:, 1]))
-            y_max = int(np.max(corners[:, 1]))
-            margin = 15
-            h, w = image.shape[:2]
-            x1 = max(0, x_min - margin)
-            y1 = max(0, y_min - margin)
-            x2 = min(w, x_max + margin)
-            y2 = min(h, y_max + margin)
-            print("[INFO] Tablero detectado por findChessboardCorners")
+        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+        lines = cv2.HoughLines(edges, 1, np.pi/180, 200)
+        if lines is None:
+            return None
+        h_lines = []
+        v_lines = []
+        for rho, theta in lines[:, 0]:
+            if abs(theta - 0) < 0.2 or abs(theta - np.pi) < 0.2:
+                h_lines.append((rho, theta))
+            elif abs(theta - np.pi/2) < 0.2 or abs(theta - 3*np.pi/2) < 0.2:
+                v_lines.append((rho, theta))
+        if len(h_lines) < 2 or len(v_lines) < 2:
+            return None
+        h_lines.sort(key=lambda x: x[0])
+        v_lines.sort(key=lambda x: x[0])
+        y1 = int(h_lines[0][0])
+        y2 = int(h_lines[-1][0])
+        x1 = int(v_lines[0][0])
+        x2 = int(v_lines[-1][0])
+        margin = 20
+        h, w = image.shape[:2]
+        x1 = max(0, x1 - margin)
+        y1 = max(0, y1 - margin)
+        x2 = min(w, x2 + margin)
+        y2 = min(h, y2 + margin)
+        if x2 - x1 > 50 and y2 - y1 > 50:
+            print("[INFO] Tablero detectado por líneas")
             return image[y1:y2, x1:x2]
     except Exception as e:
-        print(f"[WARN] findChessboardCorners falló: {e}")
+        print(f"[WARN] Detección por líneas falló: {e}")
     return None
 
-# ===== FUNCIÓN PRINCIPAL =====
 def detect_board(image):
     """Detecta el tablero usando múltiples métodos en orden."""
     methods = [
         ("líneas", detect_board_by_lines),
-        ("contorno más grande", detect_board_by_largest_contour),
+        ("contornos", detect_board_contours),
         ("color", detect_board_by_color),
-        ("chessboard corners", detect_board_chessboard)
+        ("chessboard", detect_board_chessboard)
     ]
-    
     for name, method in methods:
         board = method(image)
         if board is not None:
             print(f"[INFO] Tablero detectado por {name}")
             return board
-    
-    # Fallback final: recorte central ampliado (90%)
+    # Fallback: recorte central (90%)
     h, w = image.shape[:2]
     size = min(h, w)
     crop_size = int(size * 0.90)
@@ -230,7 +217,12 @@ def detect_board(image):
     print("[INFO] Usando recorte central (90%) como fallback")
     return image[y1:y2, x1:x2]
 
+# ============================================================
+# FUNCIONES PARA PDF Y RECORTES FIJOS
+# ============================================================
+
 def split_grid(image, rows=3, cols=2, margin=10):
+    """Divide una imagen en una cuadrícula rows x cols."""
     try:
         h, w = image.shape[:2]
         cell_h = h // rows
@@ -254,7 +246,24 @@ def split_grid(image, rows=3, cols=2, margin=10):
         print(f"[ERROR] split_grid: {e}")
         return []
 
+def apply_crop_pattern_to_page(page_img, pattern):
+    """
+    Aplica un patrón de recortes fijos a una página de PDF.
+    pattern: lista de diccionarios con {x, y, w, h} (coordenadas en píxeles).
+    """
+    h, w = page_img.shape[:2]
+    recortes = []
+    for box in pattern:
+        x = int(box.get('x', 0))
+        y = int(box.get('y', 0))
+        w_box = int(box.get('w', 0))
+        h_box = int(box.get('h', 0))
+        if w_box > 10 and h_box > 10 and x + w_box <= w and y + h_box <= h:
+            recortes.append(page_img[y:y+h_box, x:x+w_box])
+    return recortes
+
 def detect_boards_in_image(image_bytes, use_grid=False):
+    """Detecta tableros en una imagen. Si use_grid=True, divide en cuadrícula 3x2."""
     try:
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -265,10 +274,15 @@ def detect_boards_in_image(image_bytes, use_grid=False):
             if result:
                 return result
             return [img]
+        # Para imágenes sueltas, devolver la imagen completa
         return [img]
     except Exception as e:
         print(f"[ERROR] detect_boards_in_image: {e}")
         return [image_bytes]
+
+# ============================================================
+# PROCESAR IMAGEN A FEN Y MINIATURA
+# ============================================================
 
 def process_image_to_fen_and_thumbnail(image_bytes):
     try:
@@ -283,7 +297,7 @@ def process_image_to_fen_and_thumbnail(image_bytes):
 
         print(f"[INFO] Recorte obtenido: {board_img.shape}")
 
-        # Generar miniatura
+        # Generar miniatura (200x200)
         h, w = board_img.shape[:2]
         size = 200
         scale = min(size / w, size / h) if w > 0 and h > 0 else 1.0
@@ -327,14 +341,18 @@ def process_image_to_fen_and_thumbnail(image_bytes):
                 else:
                     return thumbnail_b64, None, f"FEN inválido: {raw_fen}"
             else:
-                return thumbnail_b64, None, f"Chessvision.ai falló"
+                return thumbnail_b64, None, "Chessvision.ai falló"
         else:
-            return thumbnail_b64, None, f"Chessvision.ai error {response.status_code}"
+            return thumbnail_b64, None, f"Chessvision.ai error HTTP {response.status_code}"
     except requests.exceptions.Timeout:
         return None, None, "Timeout en Chessvision.ai"
     except Exception as e:
         print(f"[ERROR] process_image_to_fen_and_thumbnail: {traceback.format_exc()}")
         return None, None, str(e)[:80]
+
+# ============================================================
+# ENDPOINTS
+# ============================================================
 
 @app.route('/')
 def index():
@@ -352,6 +370,18 @@ def upload_files():
         files = request.files.getlist('files')
         if not files:
             return jsonify({'error': 'No se seleccionaron archivos'}), 400
+
+        # Obtener page_patterns (desde JSON o form-data)
+        page_patterns = {}
+        if request.is_json:
+            page_patterns = request.json.get('page_patterns', {})
+        else:
+            patterns_str = request.form.get('page_patterns', '')
+            if patterns_str:
+                try:
+                    page_patterns = json.loads(patterns_str)
+                except:
+                    pass
 
         pages_str = request.form.get('pages', '')
         selected_pages = []
@@ -390,7 +420,15 @@ def upload_files():
                         img.save(img_bytes, format='JPEG', quality=75)
                         img_bytes.seek(0)
 
-                        board_images = detect_boards_in_image(img_bytes.getvalue(), use_grid=True)
+                        # Verificar si hay patrón fijo para esta página
+                        page_key = str(page_num)
+                        if page_patterns and page_key in page_patterns:
+                            # Usar recorte fijo
+                            img_np = cv2.imdecode(np.frombuffer(img_bytes.getvalue(), np.uint8), cv2.IMREAD_COLOR)
+                            board_images = apply_crop_pattern_to_page(img_np, page_patterns[page_key])
+                        else:
+                            # Detección automática
+                            board_images = detect_boards_in_image(img_bytes.getvalue(), use_grid=True)
 
                         for board_idx, board_img in enumerate(board_images):
                             if board_img is None:
@@ -511,6 +549,39 @@ def export_pgn():
         return response
     except Exception as e:
         print(f"[ERROR] export_pgn: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/extract-pdf-pages', methods=['POST'])
+def extract_pdf_pages():
+    """Extrae páginas de un PDF y las devuelve como imágenes base64."""
+    try:
+        file = request.files['file']
+        if not file or not file.filename.lower().endswith('.pdf'):
+            return jsonify({'error': 'No es un PDF válido'}), 400
+
+        file_bytes = file.read()
+        pages_str = request.form.get('pages', '1')
+        selected_pages = [int(p.strip()) for p in pages_str.split(',') if p.strip().isdigit()]
+        if not selected_pages:
+            selected_pages = [1]
+
+        images = convert_from_bytes(file_bytes, dpi=150)
+        total_pages = len(images)
+        valid_pages = [p for p in selected_pages if 1 <= p <= total_pages]
+        if not valid_pages:
+            return jsonify({'error': 'Páginas no válidas'}), 400
+
+        pages_b64 = []
+        for p in valid_pages:
+            img = images[p-1]
+            buffer = io.BytesIO()
+            img.save(buffer, format='JPEG', quality=80)
+            b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            pages_b64.append(f'data:image/jpeg;base64,{b64}')
+
+        return jsonify({'success': True, 'pages': pages_b64, 'total': total_pages})
+    except Exception as e:
+        print(f"[ERROR] extract_pdf_pages: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
