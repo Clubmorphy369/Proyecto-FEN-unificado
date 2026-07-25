@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (VERSIÓN SIMPLIFICADA Y FUNCIONAL)
+// MÓDULO 2: RECORTE MANUAL (VERSIÓN CORREGIDA)
 // ============================================
 (function() {
     'use strict';
@@ -76,12 +76,12 @@
     // ============ ACTUALIZAR VISUAL DE RECUADROS ============
     function updateCropBoxesVisual() {
         const scale = getScale();
-        cropBoxes.forEach((box, idx) => {
-            const el = box.element;
-            el.style.left = (box.x * scale) + 'px';
-            el.style.top = (box.y * scale) + 'px';
-            el.style.width = (box.w * scale) + 'px';
-            el.style.height = (box.h * scale) + 'px';
+        cropBoxes.forEach((boxObj, idx) => {
+            const el = boxObj.element;
+            el.style.left = (boxObj.x * scale) + 'px';
+            el.style.top = (boxObj.y * scale) + 'px';
+            el.style.width = (boxObj.w * scale) + 'px';
+            el.style.height = (boxObj.h * scale) + 'px';
             el.style.borderColor = (idx === activeCropIndex) ? '#2ecc71' : '#f1c40f';
             el.style.borderWidth = (idx === activeCropIndex) ? '3px' : '2px';
         });
@@ -107,7 +107,8 @@
 
         const box = document.createElement('div');
         box.className = 'crop-box';
-        box.dataset.index = cropBoxes.length;
+        const index = cropBoxes.length;
+        box.dataset.index = index;
         box.style.cssText = `
             position: absolute;
             border: 2px solid #f1c40f;
@@ -172,43 +173,52 @@
         });
         box.appendChild(deleteBtn);
 
-        // Evento de arrastre (mover)
+        // Guardamos el objeto con las coordenadas originales
+        const boxObj = { x, y, w, h, element: box };
+        cropBoxes.push(boxObj);
+        activeCropIndex = cropBoxes.length - 1;
+
+        // Evento de arrastre (mover) – CORREGIDO
         box.addEventListener('mousedown', (e) => {
             if (e.target.classList.contains('resize-handle') || e.target === deleteBtn) return;
             e.stopPropagation();
             e.preventDefault();
-            activeCropIndex = cropBoxes.findIndex(b => b.element === box);
+            const idx = cropBoxes.findIndex(b => b.element === box);
+            if (idx < 0) return;
+            activeCropIndex = idx;
+            const obj = cropBoxes[idx];
             isDragging = true;
             startX = e.clientX;
             startY = e.clientY;
-            startBoxX = box.x;
-            startBoxY = box.y;
+            startBoxX = obj.x;
+            startBoxY = obj.y;
             box.style.borderColor = '#2ecc71';
             box.style.borderWidth = '3px';
         });
 
-        // Eventos de redimensionamiento (manejadores de esquinas)
+        // Eventos de redimensionamiento – CORREGIDO
         box.querySelectorAll('.resize-handle').forEach(handle => {
             handle.addEventListener('mousedown', (e) => {
                 e.stopPropagation();
                 e.preventDefault();
-                activeCropIndex = cropBoxes.findIndex(b => b.element === box);
+                const idx = cropBoxes.findIndex(b => b.element === box);
+                if (idx < 0) return;
+                activeCropIndex = idx;
+                const obj = cropBoxes[idx];
                 isResizing = true;
                 resizeDir = handle.className.split(' ')[1].replace('resize-', '');
                 startX = e.clientX;
                 startY = e.clientY;
-                startBoxX = box.x;
-                startBoxY = box.y;
-                startBoxW = box.w;
-                startBoxH = box.h;
+                startBoxX = obj.x;
+                startBoxY = obj.y;
+                startBoxW = obj.w;
+                startBoxH = obj.h;
                 box.style.borderColor = '#2ecc71';
                 box.style.borderWidth = '3px';
             });
         });
 
         container.appendChild(box);
-        cropBoxes.push({ x, y, w, h, element: box });
-        activeCropIndex = cropBoxes.length - 1;
         updateCropBoxesVisual();
     }
 
@@ -217,7 +227,7 @@
         if (!isDragging && !isResizing) return;
         if (activeCropIndex < 0 || activeCropIndex >= cropBoxes.length) return;
 
-        const box = cropBoxes[activeCropIndex];
+        const obj = cropBoxes[activeCropIndex];
         const scale = getScale();
         const dx = (e.clientX - startX) / scale;
         const dy = (e.clientY - startY) / scale;
@@ -225,10 +235,10 @@
         if (isDragging) {
             let newX = startBoxX + dx;
             let newY = startBoxY + dy;
-            newX = Math.max(0, Math.min(cropOriginalWidth - box.w, newX));
-            newY = Math.max(0, Math.min(cropOriginalHeight - box.h, newY));
-            box.x = Math.round(newX);
-            box.y = Math.round(newY);
+            newX = Math.max(0, Math.min(cropOriginalWidth - obj.w, newX));
+            newY = Math.max(0, Math.min(cropOriginalHeight - obj.h, newY));
+            obj.x = Math.round(newX);
+            obj.y = Math.round(newY);
         } else if (isResizing) {
             let newW = startBoxW;
             let newH = startBoxH;
@@ -240,10 +250,10 @@
             if (resizeDir.includes('n')) { newY = Math.max(0, startBoxY + dy); newH = Math.max(10, startBoxH - dy); }
             if (newX + newW > cropOriginalWidth) newW = cropOriginalWidth - newX;
             if (newY + newH > cropOriginalHeight) newH = cropOriginalHeight - newY;
-            box.x = Math.round(newX);
-            box.y = Math.round(newY);
-            box.w = Math.round(newW);
-            box.h = Math.round(newH);
+            obj.x = Math.round(newX);
+            obj.y = Math.round(newY);
+            obj.w = Math.round(newW);
+            obj.h = Math.round(newH);
         }
         updateCropBoxesVisual();
     });
@@ -368,6 +378,13 @@
     };
 
     window.getPdfPatterns = function() {
+        // Guardar el patrón actual antes de devolver
+        if (cropBoxes.length > 0 && currentPdfPage >= 0) {
+            const pattern = getCropPattern();
+            if (pattern.length > 0) {
+                pagePatterns[currentPdfPage] = pattern;
+            }
+        }
         return pagePatterns;
     };
 
@@ -380,11 +397,11 @@
     }
 
     function getCropPattern() {
-        return cropBoxes.map(box => ({
-            x: Math.round(box.x),
-            y: Math.round(box.y),
-            w: Math.round(box.w),
-            h: Math.round(box.h)
+        return cropBoxes.map(obj => ({
+            x: Math.round(obj.x),
+            y: Math.round(obj.y),
+            w: Math.round(obj.w),
+            h: Math.round(obj.h)
         }));
     }
 
@@ -481,12 +498,9 @@
         if (confirm(`¿Eliminar ${cropSelected.size} imágenes seleccionadas?`)) {
             const newBoards = [];
             const newSelected = new Set();
-            const indices = Array.from(cropSelected).sort((a,b)=>a-b);
-            let shift = 0;
             window.cropBoards.forEach((board, idx) => {
-                if (cropSelected.has(idx)) { shift++; }
-                else {
-                    const newIdx = idx - shift;
+                if (!cropSelected.has(idx)) {
+                    const newIdx = newBoards.length;
                     newBoards.push(board);
                     if (cropSelected.has(idx)) newSelected.add(newIdx);
                 }
@@ -547,11 +561,11 @@
                 img.onload = function() {
                     const scaleX = img.width / cropOriginalWidth;
                     const scaleY = img.height / cropOriginalHeight;
-                    cropBoxes.forEach(box => {
-                        const x = Math.round(box.x * scaleX);
-                        const y = Math.round(box.y * scaleY);
-                        const w = Math.max(10, Math.round(box.w * scaleX));
-                        const h = Math.max(10, Math.round(box.h * scaleY));
+                    cropBoxes.forEach(obj => {
+                        const x = Math.round(obj.x * scaleX);
+                        const y = Math.round(obj.y * scaleY);
+                        const w = Math.max(10, Math.round(obj.w * scaleX));
+                        const h = Math.max(10, Math.round(obj.h * scaleY));
                         const canvas = document.createElement('canvas');
                         canvas.width = w;
                         canvas.height = h;
@@ -576,12 +590,12 @@
             window.showNotification('No hay recuadros.', true);
             return;
         }
-        cropBoxes.forEach(box => {
+        cropBoxes.forEach(obj => {
             const canvas = document.createElement('canvas');
-            canvas.width = box.w;
-            canvas.height = box.h;
+            canvas.width = obj.w;
+            canvas.height = obj.h;
             const ctx = canvas.getContext('2d');
-            ctx.drawImage(cropOriginalImage, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+            ctx.drawImage(cropOriginalImage, obj.x, obj.y, obj.w, obj.h, 0, 0, obj.w, obj.h);
             const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
             window.cropBoards.push({ dataUrl, turno: null });
         });
@@ -625,9 +639,16 @@
 
     // ============ EVENTOS DE PDF ============
     if (pdfPrevPageBtn) pdfPrevPageBtn.addEventListener('click', () => {
+        // Guardar patrón actual antes de cambiar
+        if (cropBoxes.length > 0 && currentPdfPage >= 0) {
+            pagePatterns[currentPdfPage] = getCropPattern();
+        }
         if (currentPdfPage > 0) loadPdfPage(currentPdfPage - 1);
     });
     if (pdfNextPageBtn) pdfNextPageBtn.addEventListener('click', () => {
+        if (cropBoxes.length > 0 && currentPdfPage >= 0) {
+            pagePatterns[currentPdfPage] = getCropPattern();
+        }
         if (currentPdfPage < pdfPages.length - 1) loadPdfPage(currentPdfPage + 1);
     });
     if (pdfApplyToAllBtn) pdfApplyToAllBtn.addEventListener('click', applyCurrentPatternToAll);
