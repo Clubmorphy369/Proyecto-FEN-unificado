@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (SIMPLIFICADO Y FUNCIONAL)
+// MÓDULO 2: RECORTE MANUAL (CON CUADRÍCULA Y HERENCIA DE TAMAÑO)
 // ============================================
 (function() {
     'use strict';
@@ -14,8 +14,6 @@
     const cropSaveBtn = document.getElementById('cropSaveBtn');
     const cropPrevBtn = document.getElementById('cropPrevBtn');
     const cropNextBtn = document.getElementById('cropNextBtn');
-    const cropTemplateSaveBtn = document.getElementById('cropTemplateSaveBtn');
-    const cropTemplateApplyBtn = document.getElementById('cropTemplateApplyBtn');
     const cropGalleryGrid = document.getElementById('cropGalleryGrid');
     const cropCount = document.getElementById('cropCount');
     const cropSelectAll = document.getElementById('cropSelectAll');
@@ -29,8 +27,10 @@
     const cropDeleteSelectedBtn = document.getElementById('cropDeleteSelectedBtn');
     const cropToggleCircle = document.getElementById('cropToggleCircle');
     const addCropBoxBtn = document.getElementById('addCropBoxBtn');
+    const gridToggle = document.getElementById('gridToggle');
+    const gridOverlay = document.getElementById('gridOverlay');
 
-    // PDF CONTROLS (mantenemos solo los esenciales)
+    // PDF CONTROLS
     const pdfControls = document.getElementById('pdfControls');
     const pdfPrevPageBtn = document.getElementById('pdfPrevPageBtn');
     const pdfNextPageBtn = document.getElementById('pdfNextPageBtn');
@@ -43,7 +43,6 @@
     let cropIndex = 0;
     window.cropBoards = [];
     let cropSelected = new Set();
-    let cropTemplate = null;
     let cropOriginalImage = null;
     let cropOriginalWidth = 0, cropOriginalHeight = 0;
     let includeCircleInDownload = true;
@@ -52,7 +51,7 @@
     let cropBoxes = [];
     let activeCropIndex = -1;
 
-    // Para interacción con el ratón
+    // Interacción ratón
     let isDragging = false;
     let isResizing = false;
     let resizeDir = '';
@@ -64,7 +63,7 @@
     let currentPdfPage = 0;
     let pagePatterns = {};
 
-    // ============ FUNCIÓN DE ESCALA Y OFFSET ============
+    // ============ ESCALA Y OFFSET ============
     function getScale() {
         if (!cropOriginalWidth || !cropOriginalHeight) return 1;
         const rect = imageToCrop.getBoundingClientRect();
@@ -82,7 +81,38 @@
         };
     }
 
-    // ============ ACTUALIZAR VISUAL DE RECUADROS ============
+    function getDisplayedImageSize() {
+        const rect = imageToCrop.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+    }
+
+    // ============ CUADRÍCULA ============
+    function updateGrid() {
+        if (!gridOverlay || !gridToggle) return;
+        const visible = gridToggle.checked;
+        if (!visible) {
+            gridOverlay.style.display = 'none';
+            return;
+        }
+        gridOverlay.style.display = 'block';
+        const offset = getImageOffset();
+        const size = getDisplayedImageSize();
+        gridOverlay.style.left = offset.left + 'px';
+        gridOverlay.style.top = offset.top + 'px';
+        gridOverlay.style.width = size.width + 'px';
+        gridOverlay.style.height = size.height + 'px';
+
+        // Crear líneas de cuadrícula usando gradientes
+        // Líneas cada 10% del ancho/alto de la imagen
+        gridOverlay.style.backgroundImage = `
+            linear-gradient(to right, rgba(255,255,255,0.4) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(255,255,255,0.4) 1px, transparent 1px)
+        `;
+        gridOverlay.style.backgroundSize = '10% 10%';
+        gridOverlay.style.backgroundPosition = '0 0';
+    }
+
+    // ============ ACTUALIZAR RECUADROS Y CUADRÍCULA ============
     function updateCropBoxesVisual() {
         const scale = getScale();
         const offset = getImageOffset();
@@ -95,9 +125,10 @@
             el.style.borderColor = (idx === activeCropIndex) ? '#2ecc71' : '#f1c40f';
             el.style.borderWidth = (idx === activeCropIndex) ? '3px' : '2px';
         });
+        updateGrid();
     }
 
-    // ============ CREAR UN NUEVO RECUADRO (TAMAÑO HEREDADO) ============
+    // ============ CREAR RECUADRO (TAMAÑO HEREDADO) ============
     function addCropBox(x, y, w, h) {
         const container = document.getElementById('cropBoxesContainer');
         if (!container) return;
@@ -273,14 +304,13 @@
         isResizing = false;
     });
 
-    // ============ BOTÓN: AÑADIR RECUADRO (TAMAÑO HEREDADO) ============
+    // ============ BOTÓN: AÑADIR RECUADRO ============
     if (addCropBoxBtn) {
         addCropBoxBtn.addEventListener('click', function() {
             if (!cropOriginalWidth || !cropOriginalHeight) {
                 window.showNotification('Primero carga una imagen.', true);
                 return;
             }
-            // Si ya hay recuadros, hereda el tamaño del último
             let w, h;
             if (cropBoxes.length > 0) {
                 const last = cropBoxes[cropBoxes.length - 1];
@@ -293,11 +323,11 @@
             const x = Math.floor((cropOriginalWidth - w) / 2);
             const y = Math.floor((cropOriginalHeight - h) / 2);
             addCropBox(x, y, w, h);
-            window.showNotification('Recuadro añadido con tamaño del último.');
+            window.showNotification('Recuadro añadido (hereda tamaño del último).');
         });
     }
 
-    // ============ CARGAR IMÁGENES SUELTAS ============
+    // ============ CARGA DE IMÁGENES SUELTAS ============
     cropLoadBtn.addEventListener('click', function() {
         const files = cropFileInput.files;
         if (!files.length) {
@@ -356,7 +386,7 @@
                 if (pagePatterns[pageIndex]) {
                     pagePatterns[pageIndex].forEach(box => addCropBox(box.x, box.y, box.w, box.h));
                 } else {
-                    // Patrón por defecto: grid 3×2 con margen del 10%
+                    // Grid 3x2 por defecto con margen 10%
                     const cols = 2, rows = 3;
                     const cellW = Math.floor(cropOriginalWidth / cols);
                     const cellH = Math.floor(cropOriginalHeight / rows);
@@ -381,7 +411,6 @@
         imgLoader.src = pdfPages[pageIndex];
     }
 
-    // ============ EXPONER FUNCIONES ============
     window.loadPdfForCrop = function(pagesData) {
         if (!pagesData || !pagesData.length) {
             window.showNotification('No se recibieron páginas del PDF.', true);
@@ -422,7 +451,7 @@
         }));
     }
 
-    // ============ RENDER GALERÍA ============
+    // ============ GALERÍA ============
     function renderCropGallery() {
         cropGalleryGrid.innerHTML = '';
         cropCount.textContent = window.cropBoards.length;
@@ -556,7 +585,7 @@
     window.renderCropGallery = renderCropGallery;
     window.getCropBoards = () => window.cropBoards;
 
-    // ============ PROCESAR TODAS LAS IMÁGENES (SUELTAS) ============
+    // ============ PROCESAR TODAS LAS IMÁGENES ============
     processAllBtn.addEventListener('click', function() {
         if (cropImages.length === 0 || cropBoxes.length === 0) {
             window.showNotification('Carga imágenes y ajusta recuadros primero.', true);
@@ -601,7 +630,7 @@
         processNext(0);
     });
 
-    // ============ GUARDAR RECORTE (IMÁGENES SUELTAS) ============
+    // ============ GUARDAR RECORTE ============
     cropSaveBtn.addEventListener('click', function() {
         if (cropBoxes.length === 0) {
             window.showNotification('No hay recuadros.', true);
@@ -622,37 +651,9 @@
         else { cropGallery.style.display = 'block'; }
     });
 
-    // ============ NAVEGACIÓN ENTRE IMÁGENES (SUELTAS) ============
+    // ============ NAVEGACIÓN ENTRE IMÁGENES SUELTAS ============
     cropPrevBtn.addEventListener('click', () => { if (cropIndex > 0) { cropIndex--; loadCropImage(); } });
     cropNextBtn.addEventListener('click', () => { if (cropIndex < cropImages.length-1) { cropIndex++; loadCropImage(); } });
-
-    // ============ PLANTILLAS (MANTENIDAS POR SI LAS USAS) ============
-    cropTemplateSaveBtn.addEventListener('click', function() {
-        if (!cropOriginalWidth || !cropOriginalHeight) return;
-        const pattern = getCropPattern();
-        if (pattern.length === 0) { window.showNotification('No hay recuadros.', true); return; }
-        cropTemplate = pattern.map(box => ({
-            x: box.x / cropOriginalWidth,
-            y: box.y / cropOriginalHeight,
-            w: box.w / cropOriginalWidth,
-            h: box.h / cropOriginalHeight
-        }));
-        cropTemplateApplyBtn.disabled = false;
-        window.showNotification('Plantilla guardada.');
-    });
-
-    cropTemplateApplyBtn.addEventListener('click', function() {
-        if (!cropTemplate || !cropOriginalWidth) return;
-        clearCropBoxes();
-        cropTemplate.forEach(t => {
-            const x = Math.round(t.x * cropOriginalWidth);
-            const y = Math.round(t.y * cropOriginalHeight);
-            const w = Math.max(10, Math.round(t.w * cropOriginalWidth));
-            const h = Math.max(10, Math.round(t.h * cropOriginalHeight));
-            addCropBox(x, y, w, h);
-        });
-        window.showNotification('Plantilla aplicada.');
-    });
 
     // ============ EVENTOS DE PDF ============
     if (pdfPrevPageBtn) pdfPrevPageBtn.addEventListener('click', () => {
@@ -692,6 +693,11 @@
         window.showNotification('Patrón aplicado a todas las páginas.');
     }
 
+    // ============ MOSTRAR/OCULTAR CUADRÍCULA ============
+    if (gridToggle) {
+        gridToggle.addEventListener('change', updateGrid);
+    }
+
     // ============ INICIALIZAR ============
     function initCropEditor() {
         const container = document.getElementById('cropBoxesContainer');
@@ -708,6 +714,12 @@
         if (cropContainer) {
             cropContainer.style.position = 'relative';
         }
+        if (gridOverlay) {
+            gridOverlay.style.position = 'absolute';
+            gridOverlay.style.pointerEvents = 'none';
+            gridOverlay.style.zIndex = '3';
+        }
+        updateGrid();
     }
 
     initCropEditor();
