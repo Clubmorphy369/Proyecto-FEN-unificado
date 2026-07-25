@@ -14,7 +14,7 @@ import shutil
 from datetime import datetime, timezone
 import re
 import json
-import chess  # 👈 Importación añadida para validar FEN
+import chess  # Importación para validar FEN
 
 app = Flask(__name__)
 
@@ -338,7 +338,7 @@ def process_image_to_fen_and_thumbnail(image_bytes):
                 raw_fen = data.get('result')
                 fen = clean_fen(raw_fen)
                 if fen:
-                    # ✨ Validación del FEN con python-chess
+                    # Validación del FEN con python-chess
                     try:
                         board = chess.Board(fen)
                         fen = board.fen()  # Normaliza el FEN
@@ -433,8 +433,10 @@ def upload_files():
                         img.save(img_bytes, format='JPEG', quality=75)
                         img_bytes.seek(0)
 
-                        # Verificar si hay patrón fijo para esta página
-                        page_key = str(page_num)
+                        # CORRECCIÓN: convertir a índice base 0
+                        page_index = page_num - 1
+                        page_key = str(page_index)
+
                         if page_patterns and page_key in page_patterns:
                             # Usar recorte fijo
                             img_np = cv2.imdecode(np.frombuffer(img_bytes.getvalue(), np.uint8), cv2.IMREAD_COLOR)
@@ -584,7 +586,6 @@ def extract_pdf_pages():
 
         print(f"[INFO] Extrayendo páginas {selected_pages} del PDF")
 
-        # 🔥 CONVERTIR SOLO LAS PÁGINAS SOLICITADAS (más eficiente)
         images = []
         for page_num in selected_pages:
             print(f"[INFO] Convirtiendo página {page_num}...")
