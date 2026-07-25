@@ -268,44 +268,48 @@
         processGalleryBtn.disabled = false;
     });
 
-    // ---------- CONFIGURAR RECORTES PARA PDF (NUEVO) ----------
+    // ---------- CONFIGURAR RECORTES PARA PDF ----------
     configPdfCropBtn.addEventListener('click', async function() {
         const files = autoFileInput.files;
         if (!files.length) {
             window.showNotification('Selecciona un PDF primero.', true);
             return;
         }
-        // Verificar que sea un PDF
         const pdfFile = files[0];
         if (!pdfFile.name.toLowerCase().endsWith('.pdf')) {
             window.showNotification('El archivo seleccionado no es un PDF.', true);
             return;
         }
 
-        // Extraer páginas del PDF
         const formData = new FormData();
         formData.append('file', pdfFile);
         const pagesStr = autoPages.value || '1';
         formData.append('pages', pagesStr);
 
         try {
+            console.log('[DEBUG] Enviando petición a /extract-pdf-pages...');
             const resp = await fetch('/extract-pdf-pages', {
                 method: 'POST',
                 body: formData
             });
             const data = await resp.json();
+            console.log('[DEBUG] Respuesta:', data);
+
             if (!data.success) throw new Error(data.error || 'Error al extraer páginas');
 
-            // Cargar páginas en el editor de recorte
-            if (window.loadPdfForCrop) {
+            console.log('[DEBUG] Páginas extraídas:', data.pages.length);
+
+            if (typeof window.loadPdfForCrop === 'function') {
+                console.log('[DEBUG] Llamando a loadPdfForCrop');
                 window.loadPdfForCrop(data.pages);
-                // Cambiar a la pestaña de recorte manual
                 document.querySelector('.tab-btn[data-tab="tab-crop"]').click();
                 window.showNotification(`PDF cargado. Páginas: ${data.pages.length} de ${data.total}.`);
             } else {
+                console.error('[ERROR] loadPdfForCrop no está definida');
                 window.showNotification('Error: Editor de recorte no disponible.', true);
             }
         } catch (e) {
+            console.error('[ERROR] configPdfCropBtn:', e);
             window.showNotification('Error: ' + e.message, true);
         }
     });
