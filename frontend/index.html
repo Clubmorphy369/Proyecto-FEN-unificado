@@ -63,7 +63,6 @@
         <!-- Editor de recorte -->
         <div id="cropEditor" class="card" style="display:none;">
             <div class="card-title"><i class="fas fa-crop-alt"></i> Ajustar recorte</div>
-            <!-- Panel de precisión (opcional, pero lo dejamos para valores exactos) -->
             <div class="precision-panel">
                 <div class="precision-input"><label>X</label><input type="number" id="cropX" step="1" value="0"></div>
                 <div class="precision-input"><label>Y</label><input type="number" id="cropY" step="1" value="0"></div>
@@ -71,16 +70,13 @@
                 <div class="precision-input"><label>Alto</label><input type="number" id="cropH" step="1" value="200"></div>
                 <button id="cropApplyBtn" class="btn btn-sm btn-success">Aplicar</button>
                 <button id="cropZoomBtn" class="btn btn-sm btn-warning">Zoom 100%</button>
-                <!-- Checkbox para mostrar cuadrícula -->
                 <label style="display:inline-flex; align-items:center; gap:5px; margin-left:10px; color:#333;">
                     <input type="checkbox" id="gridToggle" checked> Mostrar cuadrícula
                 </label>
             </div>
             <div id="cropContainer">
                 <img id="imageToCrop" style="max-width:100%; display:block; margin:0 auto;">
-                <!-- Capa para la cuadrícula -->
                 <div id="gridOverlay" style="position:absolute; top:0; left:0; pointer-events:none; z-index:3; display:block;"></div>
-                <!-- Contenedor para recuadros -->
                 <div id="cropBoxesContainer" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:5;"></div>
             </div>
 
@@ -89,9 +85,9 @@
                 <button id="pdfPrevPageBtn" class="btn">⬅ Anterior</button>
                 <span id="pdfPageCounter" style="color:#ddd; margin:0 10px;">Página 1 de 1</span>
                 <button id="pdfNextPageBtn" class="btn">Siguiente ➡</button>
-                <button id="pdfApplyToAllBtn" class="btn btn-success">Aplicar a todas</button>
-                <button id="pdfSavePatternBtn" class="btn btn-warning">Guardar patrón</button>
                 <button id="addCropBoxBtn" class="btn" style="background:#9b59b6;">➕ Añadir recuadro</button>
+                <button id="autoSnapBtn" class="btn" style="background:#16a085;">🧲 Auto‑ajustar a regla</button>
+                <button id="pdfSavePatternBtn" class="btn btn-warning">Guardar patrón</button>
             </div>
 
             <!-- BOTONES DE ACCIÓN -->
