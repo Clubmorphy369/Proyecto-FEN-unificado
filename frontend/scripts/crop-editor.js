@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (REGLA VISIBLE + AUTO-APLICAR EN 1ª PÁGINA)
+// MÓDULO 2: RECORTE MANUAL (REGLA FINA 5%, SOPORTE PDF EN PROCESAR TODAS)
 // ============================================
 (function() {
     'use strict';
@@ -29,18 +29,17 @@
     const addCropBoxBtn = document.getElementById('addCropBoxBtn');
     const gridToggle = document.getElementById('gridToggle');
     const gridOverlay = document.getElementById('gridOverlay');
-    const autoSnapBtn = document.getElementById('autoSnapBtn');   // si existe
+    const autoSnapBtn = document.getElementById('autoSnapBtn');
 
     // PDF CONTROLS
     const pdfControls = document.getElementById('pdfControls');
     const pdfPrevPageBtn = document.getElementById('pdfPrevPageBtn');
     const pdfNextPageBtn = document.getElementById('pdfNextPageBtn');
-    const pdfApplyToAllBtn = document.getElementById('pdfApplyToAllBtn');   // se puede mantener, pero ya no es imprescindible
     const pdfSavePatternBtn = document.getElementById('pdfSavePatternBtn');
     const pdfPageCounter = document.getElementById('pdfPageCounter');
 
     // ============ ESTADO GLOBAL ============
-    let cropImages = [];               // imágenes sueltas (cuando no es PDF)
+    let cropImages = [];               // imágenes sueltas (solo al cargar con “Cargar imágenes”)
     let cropIndex = 0;
     window.cropBoards = [];
     let cropSelected = new Set();
@@ -87,7 +86,7 @@
         return { width: rect.width, height: rect.height };
     }
 
-    // ============ CUADRÍCULA (REGLA VERDE TRANSPARENTE) ============
+    // ============ CUADRÍCULA (REGLA VERDE FINA AL 5%) ============
     function updateGrid() {
         if (!gridOverlay || !gridToggle) return;
         const visible = gridToggle.checked;
@@ -103,24 +102,26 @@
         gridOverlay.style.width = size.width + 'px';
         gridOverlay.style.height = size.height + 'px';
 
-        // Solo líneas verdes, fondo completamente transparente
-        gridOverlay.style.background = `
-            linear-gradient(to right, rgba(0,255,0,0.9) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(0,255,0,0.9) 1px, transparent 1px)
+        // Líneas cada 5% del ancho/alto, verde lima brillante
+        gridOverlay.style.backgroundImage = `
+            linear-gradient(to right, rgba(0, 255, 0, 0.9) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(0, 255, 0, 0.9) 1px, transparent 1px)
         `;
-        gridOverlay.style.backgroundSize = '10% 10%';
+        gridOverlay.style.backgroundSize = '5% 5%';   // ← antes era 10%, ahora más pequeño
         gridOverlay.style.backgroundPosition = '0 0';
         gridOverlay.style.border = '2px solid rgba(0,255,0,0.7)';
-        gridOverlay.style.boxShadow = 'none';   // sin sombra
+        gridOverlay.style.backgroundColor = 'transparent';
+        gridOverlay.style.boxShadow = 'none';
     }
 
-    // ============ SNAP A CUADRÍCULA ============
+    // ============ SNAP A CUADRÍCULA (tamaño de celda también al 5%) ============
     function snapToGrid(value, gridSize) {
         return Math.round(value / gridSize) * gridSize;
     }
 
     function getGridSize() {
-        return Math.round(Math.min(cropOriginalWidth, cropOriginalHeight) * 0.10);
+        // Celda = 5% del lado menor de la imagen
+        return Math.round(Math.min(cropOriginalWidth, cropOriginalHeight) * 0.05);
     }
 
     function applySnapToBox(box) {
@@ -133,15 +134,13 @@
         box.h = snapToGrid(box.h, grid);
     }
 
-    // ============ AUTO‑APLICAR EL PATRÓN A TODAS LAS PÁGINAS (si estamos en la 1ª) ============
+    // ============ AUTO‑APLICAR EL PATRÓN A TODAS LAS PÁGINAS (1ª página) ============
     function autoApplyPatternIfFirstPage() {
         if (pdfPages.length > 0 && currentPdfPage === 0 && cropBoxes.length > 0) {
             const pattern = getCropPattern();
             for (let i = 0; i < pdfPages.length; i++) {
                 pagePatterns[i] = JSON.parse(JSON.stringify(pattern));
             }
-            // No mostramos notificación para no molestar, pero podemos avisar con un pequeño mensaje opcional
-            // window.showNotification('Configuración aplicada automáticamente a todas las páginas.');
         }
     }
 
@@ -172,6 +171,7 @@
             w = lastBox.w;
             h = lastBox.h;
         } else {
+            // Por defecto: celda 2x3 con margen (basado en cuadrícula 5%? Mejor mantener margen fijo)
             const cols = 2, rows = 3;
             const cellW = Math.floor(cropOriginalWidth / cols);
             const cellH = Math.floor(cropOriginalHeight / rows);
@@ -237,7 +237,6 @@
                 if (activeCropIndex === idx) activeCropIndex = -1;
                 if (activeCropIndex > idx) activeCropIndex--;
                 updateCropBoxesVisual();
-                // Auto-aplicar si se eliminó en la primera página del PDF
                 if (pdfPages.length > 0 && currentPdfPage === 0) autoApplyPatternIfFirstPage();
             }
         });
@@ -280,11 +279,10 @@
 
         container.appendChild(box);
         updateCropBoxesVisual();
-        // Auto-aplicar si estamos en la primera página del PDF
         autoApplyPatternIfFirstPage();
     }
 
-    // ============ EVENTOS GLOBALES DE RATÓN (CON SNAP Y AUTO-APLICACIÓN) ============
+    // ============ EVENTOS GLOBALES DE RATÓN (SNAP Y AUTO-APLICACIÓN) ============
     document.addEventListener('mousemove', function(e) {
         if (!isDragging && !isResizing) return;
         if (activeCropIndex < 0 || activeCropIndex >= cropBoxes.length) return;
@@ -330,7 +328,6 @@
         const wasDraggingOrResizing = isDragging || isResizing;
         isDragging = false;
         isResizing = false;
-        // Si estábamos moviendo/redimensionando y estamos en la primera página de un PDF, auto-aplicar
         if (wasDraggingOrResizing && pdfPages.length > 0 && currentPdfPage === 0) {
             autoApplyPatternIfFirstPage();
         }
@@ -378,6 +375,9 @@
         if (!files.length) { window.showNotification('Selecciona imágenes.', true); return; }
         cropImages = Array.from(files);
         cropIndex = 0;
+        // Resetear PDF por si acaso
+        pdfPages = [];
+        pagePatterns = {};
         cropEditor.style.display = 'block';
         clearCropBoxes();
         if (pdfControls) pdfControls.style.display = 'none';
@@ -431,21 +431,8 @@
                 clearCropBoxes();
                 if (pagePatterns[pageIndex]) {
                     pagePatterns[pageIndex].forEach(box => addCropBox(box.x, box.y, box.w, box.h));
-                } else if (pageIndex === 0 && Object.keys(pagePatterns).length === 0) {
-                    // Primera página sin patrón guardado: creamos la cuadrícula por defecto
-                    const cols = 2, rows = 3;
-                    const cellW = Math.floor(cropOriginalWidth / cols);
-                    const cellH = Math.floor(cropOriginalHeight / rows);
-                    const margin = Math.min(15, Math.floor(Math.min(cellW, cellH) * 0.1));
-                    for (let r = 0; r < rows; r++) {
-                        for (let c = 0; c < cols; c++) {
-                            addCropBox(c * cellW + margin, r * cellH + margin, cellW - 2*margin, cellH - 2*margin);
-                        }
-                    }
-                    // Auto-aplicar esta configuración a todas las páginas
-                    autoApplyPatternIfFirstPage();
                 } else {
-                    // Si no hay patrón específico para esta página, usamos la cuadrícula por defecto (pero no auto-aplica)
+                    // Primera página sin patrón: crear cuadrícula por defecto
                     const cols = 2, rows = 3;
                     const cellW = Math.floor(cropOriginalWidth / cols);
                     const cellH = Math.floor(cropOriginalHeight / rows);
@@ -455,6 +442,7 @@
                             addCropBox(c * cellW + margin, r * cellH + margin, cellW - 2*margin, cellH - 2*margin);
                         }
                     }
+                    if (pageIndex === 0) autoApplyPatternIfFirstPage();  // solo si es la 1ª
                 }
                 if (pdfPageCounter) pdfPageCounter.textContent = `Página ${pageIndex+1} de ${pdfPages.length}`;
                 if (pdfPrevPageBtn) pdfPrevPageBtn.disabled = pageIndex === 0;
@@ -471,13 +459,13 @@
         pdfPages = pagesData;
         currentPdfPage = 0;
         pagePatterns = {};
+        cropImages = [];  // limpiamos imágenes sueltas
         cropEditor.style.display = 'block';
         if (pdfControls) pdfControls.style.display = 'flex';
         loadPdfPage(0);
     };
 
     window.getPdfPatterns = function() {
-        // Antes de devolver, guardar el patrón actual de la página activa
         if (cropBoxes.length > 0 && currentPdfPage >= 0) {
             pagePatterns[currentPdfPage] = getCropPattern();
         }
@@ -498,7 +486,7 @@
         }));
     }
 
-    // ============ GALERÍA (sin cambios) ============
+    // ============ GALERÍA ============
     function renderCropGallery() {
         cropGalleryGrid.innerHTML = '';
         cropCount.textContent = window.cropBoards.length;
@@ -529,7 +517,7 @@
         if (window.updatePdfPreview) window.updatePdfPreview();
     }
 
-    // Eventos de galería
+    // ============ EVENTOS DE GALERÍA ============
     cropSelectAll.addEventListener('click', () => { for (let i=0; i<window.cropBoards.length; i++) cropSelected.add(i); renderCropGallery(); });
     cropDeselectAll.addEventListener('click', () => { cropSelected.clear(); renderCropGallery(); });
     cropBatchWhite.addEventListener('click', () => { for (let i=0; i<window.cropBoards.length; i++) { if (cropSelected.has(i)) window.cropBoards[i].turno='white'; else window.cropBoards[i].turno='black'; } renderCropGallery(); });
@@ -542,25 +530,73 @@
     window.renderCropGallery = renderCropGallery;
     window.getCropBoards = () => window.cropBoards;
 
-    // ============ PROCESAR TODAS LAS IMÁGENES (solo para imágenes sueltas) ============
-    processAllBtn.addEventListener('click', () => {
-        if (cropImages.length===0 || cropBoxes.length===0) {
-            window.showNotification('Carga imágenes o usa la pestaña Extracción automática para procesar PDFs.', true);
-            return;
-        }
-        let processed=0; const total=cropImages.length;
-        function processNext(idx) { /* ... mismo código anterior ... */ }
-        processNext(0);
-    });
-
-    // Mantenemos la función original de processAllBtn pero sin cambios mayores (copiar del último código funcional)
-    // (Puedes pegar exactamente la función que ya tenías, no se ha perdido)
-    // La función original completa:
+    // ============ PROCESAR TODAS LAS IMÁGENES (AHORA SOPORTA PDF) ============
     processAllBtn.addEventListener('click', function() {
-        if (cropImages.length === 0 || cropBoxes.length === 0) {
-            window.showNotification('Carga imágenes y ajusta recuadros primero.', true);
+        // Si hay PDF cargado, extraemos todos los diagramas de todas las páginas
+        if (pdfPages.length > 0) {
+            if (cropBoxes.length === 0) {
+                window.showNotification('Ajusta los recuadros primero.', true);
+                return;
+            }
+            // Guardar el patrón actual antes de procesar
+            if (cropBoxes.length > 0) {
+                pagePatterns[currentPdfPage] = getCropPattern();
+            }
+            let totalBoards = 0;
+            let processedPages = 0;
+
+            // Procesar cada página
+            for (let pageIdx = 0; pageIdx < pdfPages.length; pageIdx++) {
+                // Cargar imagen de la página (base64) en un objeto Image
+                const pageImg = new Image();
+                pageImg.src = pdfPages[pageIdx];
+                // Para evitar problemas de carga asíncrona, usamos una función con promesas o onload anidado
+                pageImg.onload = (function(idx) {
+                    return function() {
+                        // Obtener patrón para esta página (si no existe, usar el de la página actual o cropBoxes)
+                        let pattern = pagePatterns[idx];
+                        if (!pattern || pattern.length === 0) {
+                            // Si es la primera página y no tiene patrón, usamos los cropBoxes actuales
+                            if (idx === 0 && cropBoxes.length > 0) {
+                                pattern = getCropPattern();
+                            } else {
+                                // Si no hay patrón, no podemos recortar, saltar
+                                processedPages++;
+                                if (processedPages === pdfPages.length) {
+                                    window.showNotification(`Se añadieron ${totalBoards} tableros a la galería.`);
+                                    renderCropGallery();
+                                }
+                                return;
+                            }
+                        }
+                        // Para cada recuadro del patrón, extraer el sub‑rectángulo
+                        for (const box of pattern) {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = box.w;
+                            canvas.height = box.h;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(pageImg, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+                            const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                            window.cropBoards.push({ dataUrl, turno: null });
+                            totalBoards++;
+                        }
+                        processedPages++;
+                        if (processedPages === pdfPages.length) {
+                            window.showNotification(`Se añadieron ${totalBoards} tableros a la galería.`);
+                            renderCropGallery();
+                        }
+                    };
+                })(pageIdx);
+            }
             return;
         }
+
+        // Si no hay PDF, comportamiento original para imágenes sueltas
+        if (cropImages.length === 0 || cropBoxes.length === 0) {
+            window.showNotification('Carga imágenes sueltas y ajusta recuadros, o usa un PDF con el botón "Configurar recortes".', true);
+            return;
+        }
+
         let processed = 0;
         const total = cropImages.length;
         window.showNotification(`Procesando ${total} imágenes...`);
@@ -617,7 +653,7 @@
     cropPrevBtn.addEventListener('click', () => { if (cropIndex>0) { cropIndex--; loadCropImage(); } });
     cropNextBtn.addEventListener('click', () => { if (cropIndex<cropImages.length-1) { cropIndex++; loadCropImage(); } });
 
-    // ============ PDF: NAVEGACIÓN Y PATRONES (manual por si acaso) ============
+    // ============ PDF: NAVEGACIÓN Y PATRONES ============
     if (pdfPrevPageBtn) pdfPrevPageBtn.addEventListener('click', () => {
         if (cropBoxes.length>0) pagePatterns[currentPdfPage]=getCropPattern();
         if (currentPdfPage>0) loadPdfPage(currentPdfPage-1);
@@ -626,16 +662,9 @@
         if (cropBoxes.length>0) pagePatterns[currentPdfPage]=getCropPattern();
         if (currentPdfPage<pdfPages.length-1) loadPdfPage(currentPdfPage+1);
     });
-    // El botón "Aplicar a todas" ahora es redundante, pero lo dejamos por si se quiere forzar
-    if (pdfApplyToAllBtn) pdfApplyToAllBtn.addEventListener('click', () => {
-        const pattern = getCropPattern();
-        if (!pattern.length) return;
-        for (let i = 0; i < pdfPages.length; i++) pagePatterns[i] = JSON.parse(JSON.stringify(pattern));
-        window.showNotification('Patrón aplicado manualmente a todas las páginas.');
-    });
     if (pdfSavePatternBtn) pdfSavePatternBtn.addEventListener('click', () => {
         const pattern = getCropPattern();
-        if (!pattern.length) return;
+        if (!pattern.length) { window.showNotification('No hay recuadros en esta página.', true); return; }
         pagePatterns[currentPdfPage] = pattern;
         window.showNotification(`Patrón guardado para página ${currentPdfPage+1}`);
     });
@@ -651,7 +680,7 @@
             gridOverlay.style.position = 'absolute';
             gridOverlay.style.pointerEvents = 'none';
             gridOverlay.style.zIndex = '3';
-            gridOverlay.style.backgroundColor = 'transparent';  // Aseguramos transparencia
+            gridOverlay.style.backgroundColor = 'transparent';
         }
         updateGrid();
     }
