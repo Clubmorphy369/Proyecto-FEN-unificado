@@ -186,6 +186,14 @@
         for (const f of files) formData.append('files', f);
         formData.append('pages', autoPages.value);
 
+        // ✨ MEJORA: Incluir patrones de recorte si existen (desde el editor de PDF)
+        if (window.getPdfPatterns && typeof window.getPdfPatterns === 'function') {
+            const patterns = window.getPdfPatterns();
+            if (patterns && Object.keys(patterns).length > 0) {
+                formData.append('page_patterns', JSON.stringify(patterns));
+            }
+        }
+
         autoStatus.textContent = 'Procesando archivos...';
         autoProcessBtn.disabled = true;
 
