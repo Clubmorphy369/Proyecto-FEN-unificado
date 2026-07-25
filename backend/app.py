@@ -33,7 +33,7 @@ def clean_fen(raw_fen):
         return ' '.join(parts[:6])
     return None
 
-# ===== NUEVA FUNCIÓN DE DETECCIÓN CON findChessboardCorners =====
+# ===== DETECCIÓN CON findChessboardCorners =====
 def detect_board_chessboard(image):
     """
     Detecta tablero usando findChessboardCorners (método nativo de OpenCV).
@@ -62,57 +62,70 @@ def detect_board_chessboard(image):
         print(f"[WARN] findChessboardCorners falló: {e}")
     return None
 
-# ===== FUNCIÓN DETECT_BOARD MEJORADA =====
+# ===== DETECCIÓN POR CONTORNOS (MÁS TOLERANTE) =====
+def detect_board_contours(image):
+    """Método de contornos (más tolerante para capturas de pantalla)."""
+    try:
+        h, w = image.shape[:2]
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        gray_eq = clahe.apply(gray)
+        thresh = cv2.adaptiveThreshold(gray_eq, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                       cv2.THRESH_BINARY, 15, 2)
+        kernel = np.ones((5, 5), np.uint8)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        best_rect = None
+        max_area = 0
+        min_area = 5000
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < min_area:
+                continue
+            peri = cv2.arcLength(cnt, True)
+            approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+            if len(approx) == 4:
+                x, y, w_box, h_box = cv2.boundingRect(cnt)
+                aspect = w_box / h_box
+                if 0.7 < aspect < 1.3:
+                    if area > max_area:
+                        max_area = area
+                        best_rect = (x, y, w_box, h_box)
+        if best_rect:
+            x, y, w_box, h_box = best_rect
+            margin = 10
+            x1 = max(0, x - margin)
+            y1 = max(0, y - margin)
+            x2 = min(w, x + w_box + margin)
+            y2 = min(h, y + h_box + margin)
+            return image[y1:y2, x1:x2]
+    except Exception as e:
+        print(f"[WARN] Contornos falló: {e}")
+    return None
+
+# ===== FUNCIÓN DETECT_BOARD (CON ORDEN AJUSTADO) =====
 def detect_board(image):
     """
     Detecta el tablero usando múltiples métodos en orden:
-    1. findChessboardCorners (específico para tableros)
-    2. Contornos (método anterior)
+    1. Contornos (mejor para capturas de pantalla)
+    2. findChessboardCorners (mejor para imágenes nítidas)
     3. Recorte central (fallback)
     """
-    # 1. Intentar con findChessboardCorners
+    # 1. Intentar con contornos primero
+    board = detect_board_contours(image)
+    if board is not None:
+        print("[INFO] Tablero detectado con contornos")
+        return board
+
+    # 2. Intentar con findChessboardCorners
     board = detect_board_chessboard(image)
     if board is not None:
         print("[INFO] Tablero detectado con findChessboardCorners")
         return board
 
-    # 2. Método de contornos (código existente)
-    h, w = image.shape[:2]
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    gray_eq = clahe.apply(gray)
-    thresh = cv2.adaptiveThreshold(gray_eq, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                   cv2.THRESH_BINARY, 15, 2)
-    kernel = np.ones((5, 5), np.uint8)
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
-    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best_rect = None
-    max_area = 0
-    min_area = 5000
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < min_area:
-            continue
-        peri = cv2.arcLength(cnt, True)
-        approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
-        if len(approx) == 4:
-            x, y, w_box, h_box = cv2.boundingRect(cnt)
-            aspect = w_box / h_box
-            if 0.7 < aspect < 1.3:
-                if area > max_area:
-                    max_area = area
-                    best_rect = (x, y, w_box, h_box)
-    if best_rect:
-        x, y, w_box, h_box = best_rect
-        margin = 10
-        x1 = max(0, x - margin)
-        y1 = max(0, y - margin)
-        x2 = min(w, x + w_box + margin)
-        y2 = min(h, y + h_box + margin)
-        return image[y1:y2, x1:x2]
-
     # 3. Fallback final: recorte central
+    h, w = image.shape[:2]
     size = min(h, w)
     crop_size = int(size * 0.75)
     center_x = w // 2
@@ -122,6 +135,7 @@ def detect_board(image):
     y1 = max(0, center_y - half)
     x2 = min(w, center_x + half)
     y2 = min(h, center_y + half)
+    print("[INFO] Usando recorte central como fallback")
     return image[y1:y2, x1:x2]
 
 def split_grid(image, rows=3, cols=2, margin=10):
@@ -177,6 +191,8 @@ def process_image_to_fen_and_thumbnail(image_bytes):
 
         # Detectar y recortar tablero (usando la función mejorada)
         board_img = detect_board(img)
+        if board_img is None or board_img.size == 0:
+            return None, None, "No se pudo detectar tablero"
         print(f"[INFO] Recorte obtenido: {board_img.shape}")
 
         # --- Generar miniatura (200x200) ---
@@ -289,6 +305,8 @@ def upload_files():
                         board_images = detect_boards_in_image(img_bytes.getvalue(), use_grid=True)
 
                         for board_idx, board_img in enumerate(board_images):
+                            if board_img is None:
+                                continue
                             _, board_bytes_cv = cv2.imencode('.jpg', board_img)
                             board_bytes_cv = board_bytes_cv.tobytes()
                             thumbnail, fen, error = process_image_to_fen_and_thumbnail(board_bytes_cv)
