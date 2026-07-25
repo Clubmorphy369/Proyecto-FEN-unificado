@@ -16,7 +16,7 @@ import re
 
 app = Flask(__name__)
 
-# Tamaño máximo de archivo: 100 MB (puedes ajustarlo)
+# Tamaño máximo de archivo: 100 MB
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 UPLOAD_FOLDER = tempfile.mkdtemp()
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -32,6 +32,97 @@ def clean_fen(raw_fen):
     if len(parts) >= 6:
         return ' '.join(parts[:6])
     return None
+
+# ===== NUEVA FUNCIÓN DE DETECCIÓN CON findChessboardCorners =====
+def detect_board_chessboard(image):
+    """
+    Detecta tablero usando findChessboardCorners (método nativo de OpenCV).
+    Retorna el recorte del tablero o None si no lo encuentra.
+    """
+    try:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Buscar esquinas del tablero (8x8 casillas)
+        ret, corners = cv2.findChessboardCorners(gray, (8, 8), None)
+        if ret:
+            # Obtener el rectángulo delimitador de las esquinas
+            corners = corners.reshape(-1, 2)
+            x_min = int(np.min(corners[:, 0]))
+            x_max = int(np.max(corners[:, 0]))
+            y_min = int(np.min(corners[:, 1]))
+            y_max = int(np.max(corners[:, 1]))
+            # Añadir margen para no cortar piezas
+            margin = 15
+            h, w = image.shape[:2]
+            x1 = max(0, x_min - margin)
+            y1 = max(0, y_min - margin)
+            x2 = min(w, x_max + margin)
+            y2 = min(h, y_max + margin)
+            return image[y1:y2, x1:x2]
+    except Exception as e:
+        print(f"[WARN] findChessboardCorners falló: {e}")
+    return None
+
+# ===== FUNCIÓN DETECT_BOARD MEJORADA =====
+def detect_board(image):
+    """
+    Detecta el tablero usando múltiples métodos en orden:
+    1. findChessboardCorners (específico para tableros)
+    2. Contornos (método anterior)
+    3. Recorte central (fallback)
+    """
+    # 1. Intentar con findChessboardCorners
+    board = detect_board_chessboard(image)
+    if board is not None:
+        print("[INFO] Tablero detectado con findChessboardCorners")
+        return board
+
+    # 2. Método de contornos (código existente)
+    h, w = image.shape[:2]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    gray_eq = clahe.apply(gray)
+    thresh = cv2.adaptiveThreshold(gray_eq, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                   cv2.THRESH_BINARY, 15, 2)
+    kernel = np.ones((5, 5), np.uint8)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
+    thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=1)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    best_rect = None
+    max_area = 0
+    min_area = 5000
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area < min_area:
+            continue
+        peri = cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+        if len(approx) == 4:
+            x, y, w_box, h_box = cv2.boundingRect(cnt)
+            aspect = w_box / h_box
+            if 0.7 < aspect < 1.3:
+                if area > max_area:
+                    max_area = area
+                    best_rect = (x, y, w_box, h_box)
+    if best_rect:
+        x, y, w_box, h_box = best_rect
+        margin = 10
+        x1 = max(0, x - margin)
+        y1 = max(0, y - margin)
+        x2 = min(w, x + w_box + margin)
+        y2 = min(h, y + h_box + margin)
+        return image[y1:y2, x1:x2]
+
+    # 3. Fallback final: recorte central
+    size = min(h, w)
+    crop_size = int(size * 0.75)
+    center_x = w // 2
+    center_y = h // 2
+    half = crop_size // 2
+    x1 = max(0, center_x - half)
+    y1 = max(0, center_y - half)
+    x2 = min(w, center_x + half)
+    y2 = min(h, center_y + half)
+    return image[y1:y2, x1:x2]
 
 def split_grid(image, rows=3, cols=2, margin=10):
     """Divide una imagen en una cuadrícula rows x cols, devuelve lista de recortes (imágenes OpenCV)."""
@@ -84,13 +175,17 @@ def process_image_to_fen_and_thumbnail(image_bytes):
         if img is None:
             return None, None, "No se pudo decodificar la imagen"
 
+        # Detectar y recortar tablero (usando la función mejorada)
+        board_img = detect_board(img)
+        print(f"[INFO] Recorte obtenido: {board_img.shape}")
+
         # --- Generar miniatura (200x200) ---
-        h, w = img.shape[:2]
+        h, w = board_img.shape[:2]
         size = 200
         scale = min(size / w, size / h) if w > 0 and h > 0 else 1.0
         new_w = max(1, int(w * scale))
         new_h = max(1, int(h * scale))
-        resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        resized = cv2.resize(board_img, (new_w, new_h), interpolation=cv2.INTER_AREA)
         canvas = np.ones((size, size, 3), dtype=np.uint8) * 255
         x_offset = (size - new_w) // 2
         y_offset = (size - new_h) // 2
@@ -99,7 +194,7 @@ def process_image_to_fen_and_thumbnail(image_bytes):
         thumbnail_b64 = base64.b64encode(buffer).decode('utf-8')
 
         # --- Enviar a Chessvision.ai ---
-        _, board_bytes = cv2.imencode('.jpg', img)
+        _, board_bytes = cv2.imencode('.jpg', board_img)
         board_bytes = board_bytes.tobytes()
 
         img_pil = Image.open(io.BytesIO(board_bytes))
@@ -117,7 +212,7 @@ def process_image_to_fen_and_thumbnail(image_bytes):
             "image": f"data:image/jpeg;base64,{encoded_string}",
             "predict_turn": True
         }
-        response = requests.post('http://app.chessvision.ai/predict', json=payload, timeout=30)
+        response = requests.post('http://app.chessvision.ai/predict', json=payload, timeout=15)
         print(f"[DEBUG] Chessvision.ai status: {response.status_code}")
         if response.status_code == 200:
             data = response.json()
@@ -136,7 +231,7 @@ def process_image_to_fen_and_thumbnail(image_bytes):
         print(f"[ERROR] process_image_to_fen_and_thumbnail: {traceback.format_exc()}")
         return None, None, str(e)
 
-# ---------- ENDPOINTS ----------
+# ===== ENDPOINTS =====
 @app.route('/')
 def index():
     return send_from_directory(FRONTEND_DIR, 'index.html')
@@ -179,12 +274,11 @@ def upload_files():
                     total_pages = 1
 
                 if not selected_pages:
-                    selected_pages = list(range(1, total_pages + 1))  # Todas las páginas
+                    selected_pages = list(range(1, total_pages + 1))
                 valid_pages = [p for p in selected_pages if 1 <= p <= total_pages]
                 if not valid_pages:
                     return jsonify({'error': f'No hay páginas válidas (PDF tiene {total_pages} páginas)'}), 400
 
-                # Procesar todas las páginas seleccionadas (sin límite)
                 for page_num in valid_pages:
                     try:
                         img = convert_from_bytes(file_bytes, dpi=150, first_page=page_num, last_page=page_num)[0]
