@@ -16,7 +16,6 @@ import re
 
 app = Flask(__name__)
 
-# Tamaño máximo de archivo: 100 MB
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 UPLOAD_FOLDER = tempfile.mkdtemp()
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -33,38 +32,70 @@ def clean_fen(raw_fen):
         return ' '.join(parts[:6])
     return None
 
-# ===== DETECCIÓN CON findChessboardCorners =====
-def detect_board_chessboard(image):
+# ===== DETECCIÓN POR COLOR (para StepChess y similares) =====
+def detect_board_by_color(image):
     """
-    Detecta tablero usando findChessboardCorners (método nativo de OpenCV).
-    Retorna el recorte del tablero o None si no lo encuentra.
+    Detecta el tablero por color (casillas claras y oscuras).
+    Funciona bien cuando el tablero tiene colores contrastantes.
     """
     try:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        # Buscar esquinas del tablero (8x8 casillas)
-        ret, corners = cv2.findChessboardCorners(gray, (8, 8), None)
-        if ret:
-            # Obtener el rectángulo delimitador de las esquinas
-            corners = corners.reshape(-1, 2)
-            x_min = int(np.min(corners[:, 0]))
-            x_max = int(np.max(corners[:, 0]))
-            y_min = int(np.min(corners[:, 1]))
-            y_max = int(np.max(corners[:, 1]))
-            # Añadir margen para no cortar piezas
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        # Rango de colores para casillas claras (blanco, beige, etc.)
+        lower_light = np.array([0, 0, 150])
+        upper_light = np.array([180, 50, 255])
+        mask_light = cv2.inRange(hsv, lower_light, upper_light)
+
+        # Rango de colores para casillas oscuras (marrón, gris oscuro)
+        lower_dark = np.array([0, 0, 0])
+        upper_dark = np.array([180, 255, 80])
+        mask_dark = cv2.inRange(hsv, lower_dark, upper_dark)
+
+        # Combinar ambas máscaras
+        mask = cv2.bitwise_or(mask_light, mask_dark)
+
+        # Morfología para conectar áreas
+        kernel = np.ones((5, 5), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+
+        # Encontrar contornos
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return None
+
+        # Buscar el contorno más grande que sea aproximadamente cuadrado
+        h, w = image.shape[:2]
+        best_rect = None
+        max_area = 0
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < 1000:
+                continue
+            peri = cv2.arcLength(cnt, True)
+            approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+            if len(approx) == 4:
+                x, y, w_box, h_box = cv2.boundingRect(cnt)
+                aspect = w_box / h_box
+                if 0.5 < aspect < 1.5:  # Permitir relación de aspecto más flexible
+                    if area > max_area:
+                        max_area = area
+                        best_rect = (x, y, w_box, h_box)
+
+        if best_rect:
+            x, y, w_box, h_box = best_rect
             margin = 15
-            h, w = image.shape[:2]
-            x1 = max(0, x_min - margin)
-            y1 = max(0, y_min - margin)
-            x2 = min(w, x_max + margin)
-            y2 = min(h, y_max + margin)
+            x1 = max(0, x - margin)
+            y1 = max(0, y - margin)
+            x2 = min(w, x + w_box + margin)
+            y2 = min(h, y + h_box + margin)
+            print("[INFO] Tablero detectado por color")
             return image[y1:y2, x1:x2]
     except Exception as e:
-        print(f"[WARN] findChessboardCorners falló: {e}")
+        print(f"[WARN] Detección por color falló: {e}")
     return None
 
-# ===== DETECCIÓN POR CONTORNOS (MÁS TOLERANTE) =====
+# ===== DETECCIÓN POR CONTORNOS (original) =====
 def detect_board_contours(image):
-    """Método de contornos (más tolerante para capturas de pantalla)."""
     try:
         h, w = image.shape[:2]
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -104,30 +135,59 @@ def detect_board_contours(image):
         print(f"[WARN] Contornos falló: {e}")
     return None
 
-# ===== FUNCIÓN DETECT_BOARD (CON ORDEN AJUSTADO) =====
+# ===== DETECCIÓN CON findChessboardCorners =====
+def detect_board_chessboard(image):
+    try:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        ret, corners = cv2.findChessboardCorners(gray, (8, 8), None)
+        if ret:
+            corners = corners.reshape(-1, 2)
+            x_min = int(np.min(corners[:, 0]))
+            x_max = int(np.max(corners[:, 0]))
+            y_min = int(np.min(corners[:, 1]))
+            y_max = int(np.max(corners[:, 1]))
+            margin = 15
+            h, w = image.shape[:2]
+            x1 = max(0, x_min - margin)
+            y1 = max(0, y_min - margin)
+            x2 = min(w, x_max + margin)
+            y2 = min(h, y_max + margin)
+            return image[y1:y2, x1:x2]
+    except Exception as e:
+        print(f"[WARN] findChessboardCorners falló: {e}")
+    return None
+
+# ===== FUNCIÓN PRINCIPAL DE DETECCIÓN =====
 def detect_board(image):
     """
     Detecta el tablero usando múltiples métodos en orden:
-    1. Contornos (mejor para capturas de pantalla)
-    2. findChessboardCorners (mejor para imágenes nítidas)
-    3. Recorte central (fallback)
+    1. Por color (para StepChess y similares)
+    2. Contornos (para capturas de Lichess)
+    3. findChessboardCorners (para imágenes nítidas)
+    4. Recorte central ampliado (fallback)
     """
-    # 1. Intentar con contornos primero
+    # 1. Por color (mejor para StepChess)
+    board = detect_board_by_color(image)
+    if board is not None:
+        print("[INFO] Tablero detectado por color")
+        return board
+
+    # 2. Contornos
     board = detect_board_contours(image)
     if board is not None:
-        print("[INFO] Tablero detectado con contornos")
+        print("[INFO] Tablero detectado por contornos")
         return board
 
-    # 2. Intentar con findChessboardCorners
+    # 3. findChessboardCorners
     board = detect_board_chessboard(image)
     if board is not None:
-        print("[INFO] Tablero detectado con findChessboardCorners")
+        print("[INFO] Tablero detectado por findChessboardCorners")
         return board
 
-    # 3. Fallback final: recorte central
+    # 4. Fallback: recorte central ampliado (85% en lugar de 75%)
     h, w = image.shape[:2]
     size = min(h, w)
-    crop_size = int(size * 0.75)
+    crop_size = int(size * 0.85)  # Más amplio para capturar mejor
     center_x = w // 2
     center_y = h // 2
     half = crop_size // 2
@@ -135,11 +195,10 @@ def detect_board(image):
     y1 = max(0, center_y - half)
     x2 = min(w, center_x + half)
     y2 = min(h, center_y + half)
-    print("[INFO] Usando recorte central como fallback")
+    print("[INFO] Usando recorte central ampliado (85%) como fallback")
     return image[y1:y2, x1:x2]
 
 def split_grid(image, rows=3, cols=2, margin=10):
-    """Divide una imagen en una cuadrícula rows x cols, devuelve lista de recortes (imágenes OpenCV)."""
     try:
         h, w = image.shape[:2]
         cell_h = h // rows
@@ -164,7 +223,6 @@ def split_grid(image, rows=3, cols=2, margin=10):
         return []
 
 def detect_boards_in_image(image_bytes, use_grid=False):
-    """Detecta tableros en una imagen. Si use_grid=True, divide en cuadrícula 3x2."""
     try:
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -175,27 +233,24 @@ def detect_boards_in_image(image_bytes, use_grid=False):
             if result:
                 return result
             return [img]
-        # Para imágenes sueltas, devolvemos la imagen completa (asumimos un solo tablero)
         return [img]
     except Exception as e:
         print(f"[ERROR] detect_boards_in_image: {e}")
         return [image_bytes]
 
 def process_image_to_fen_and_thumbnail(image_bytes):
-    """Procesa una imagen (recorte o página completa) y devuelve (thumbnail_b64, fen, error)."""
     try:
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None:
             return None, None, "No se pudo decodificar la imagen"
 
-        # Detectar y recortar tablero (usando la función mejorada)
         board_img = detect_board(img)
         if board_img is None or board_img.size == 0:
             return None, None, "No se pudo detectar tablero"
         print(f"[INFO] Recorte obtenido: {board_img.shape}")
 
-        # --- Generar miniatura (200x200) ---
+        # Generar miniatura
         h, w = board_img.shape[:2]
         size = 200
         scale = min(size / w, size / h) if w > 0 and h > 0 else 1.0
@@ -209,10 +264,9 @@ def process_image_to_fen_and_thumbnail(image_bytes):
         _, buffer = cv2.imencode('.jpg', canvas, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
         thumbnail_b64 = base64.b64encode(buffer).decode('utf-8')
 
-        # --- Enviar a Chessvision.ai ---
+        # Enviar a Chessvision.ai
         _, board_bytes = cv2.imencode('.jpg', board_img)
         board_bytes = board_bytes.tobytes()
-
         img_pil = Image.open(io.BytesIO(board_bytes))
         if img_pil.size[0] > 1000 or img_pil.size[1] > 1000:
             img_pil.thumbnail((1000, 1000))
