@@ -63,14 +63,9 @@
         <!-- Editor de recorte -->
         <div id="cropEditor" class="card" style="display:none;">
             <div class="card-title"><i class="fas fa-crop-alt"></i> Ajustar recorte</div>
-            <div class="precision-panel">
-                <div class="precision-input"><label>X</label><input type="number" id="cropX" step="1" value="0"></div>
-                <div class="precision-input"><label>Y</label><input type="number" id="cropY" step="1" value="0"></div>
-                <div class="precision-input"><label>Ancho</label><input type="number" id="cropW" step="1" value="200"></div>
-                <div class="precision-input"><label>Alto</label><input type="number" id="cropH" step="1" value="200"></div>
-                <button id="cropApplyBtn" class="btn btn-sm btn-success">Aplicar</button>
-                <button id="cropZoomBtn" class="btn btn-sm btn-warning">Zoom 100%</button>
-                <label style="display:inline-flex; align-items:center; gap:5px; margin-left:10px; color:#333;">
+            <!-- Solo dejamos la opción de mostrar cuadrícula -->
+            <div style="display:flex; align-items:center; gap:15px; margin-bottom:10px;">
+                <label style="display:inline-flex; align-items:center; gap:5px; color:#333;">
                     <input type="checkbox" id="gridToggle" checked> Mostrar cuadrícula
                 </label>
             </div>
