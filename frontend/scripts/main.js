@@ -39,11 +39,12 @@
     const autoResults = document.getElementById('autoResults');
     const processGalleryBtn = document.getElementById('processGalleryBtn');
     const clearAutoResultsBtn = document.getElementById('clearAutoResultsBtn');
+    const configPdfCropBtn = document.getElementById('configPdfCropBtn');
 
     let autoData = [];
     let autoFens = new Set(); // Para deduplicación
 
-    // ---------- FUNCIÓN PARA ALTERNAR TURNO (MANUAL) ----------
+    // ---------- FUNCIÓN PARA ALTERNAR TURNO ----------
     function toggleTurn(fen) {
         const parts = fen.split(' ');
         if (parts.length >= 3) {
@@ -55,7 +56,6 @@
 
     // ---------- FUNCIÓN PARA FORZAR UN TURNO EN EL FEN ----------
     function setTurnInFen(fen, turnoChar) {
-        // turnoChar debe ser 'w' o 'b'
         const parts = fen.split(' ');
         if (parts.length >= 3) {
             parts[1] = turnoChar;
@@ -83,7 +83,7 @@
         return addedCount;
     }
 
-    // ---------- FUNCIÓN PARA RENDERIZAR LA TABLA (CON BOTONES 🔄 Y ✂️) ----------
+    // ---------- FUNCIÓN PARA RENDERIZAR LA TABLA ----------
     function renderAutoResults() {
         if (!autoData || autoData.length === 0) {
             autoResults.innerHTML = '<p>No hay resultados. Sube imágenes o procesa recortes desde la galería.</p>';
@@ -123,7 +123,7 @@
         html += '</tbody></table>';
         autoResults.innerHTML = html;
 
-        // ---------- EVENTOS PARA BOTONES DE ALTERNAR TURNO ----------
+        // Eventos para 🔄
         document.querySelectorAll('.btn-toggle-turn').forEach(btn => {
             btn.addEventListener('click', function() {
                 const index = parseInt(this.getAttribute('data-index'));
@@ -142,7 +142,7 @@
             });
         });
 
-        // ---------- EVENTOS PARA BOTONES DE COPIAR Y ELIMINAR ----------
+        // Eventos para ✂️
         document.querySelectorAll('.btn-copy-fen').forEach(btn => {
             btn.addEventListener('click', function() {
                 const fen = this.getAttribute('data-fen');
@@ -205,7 +205,7 @@
         }
     });
 
-    // ---------- PROCESAR RECORTES DESDE LA GALERÍA (CON TURNO) ----------
+    // ---------- PROCESAR RECORTES DESDE LA GALERÍA ----------
     processGalleryBtn.addEventListener('click', async function() {
         const boards = window.cropBoards || [];
         if (!boards.length) {
@@ -232,12 +232,10 @@
                 const data = await resp.json();
                 if (data.success) {
                     let fen = data.fen;
-                    // ---------- APLICAR EL TURNO DE LA GALERÍA SI EXISTE ----------
                     if (fen && board.turno) {
                         const turnoChar = board.turno === 'white' ? 'w' : 'b';
                         fen = setTurnInFen(fen, turnoChar);
                     }
-                    // -----------------------------------------------------------
                     newResults.push({
                         original_filename: board.turno ? `Recorte ${i+1} (${board.turno})` : `Recorte ${i+1}`,
                         file: `recorte_${i+1}`,
@@ -270,6 +268,58 @@
         processGalleryBtn.disabled = false;
     });
 
+    // ---------- CONFIGURAR RECORTES PARA PDF (NUEVO) ----------
+    configPdfCropBtn.addEventListener('click', async function() {
+        const files = autoFileInput.files;
+        if (!files.length) {
+            window.showNotification('Selecciona un PDF primero.', true);
+            return;
+        }
+        // Verificar que sea un PDF
+        const pdfFile = files[0];
+        if (!pdfFile.name.toLowerCase().endsWith('.pdf')) {
+            window.showNotification('El archivo seleccionado no es un PDF.', true);
+            return;
+        }
+
+        // Extraer páginas del PDF
+        const formData = new FormData();
+        formData.append('file', pdfFile);
+        const pagesStr = autoPages.value || '1';
+        formData.append('pages', pagesStr);
+
+        try {
+            const resp = await fetch('/extract-pdf-pages', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error || 'Error al extraer páginas');
+
+            // Cargar páginas en el editor de recorte
+            if (window.loadPdfForCrop) {
+                window.loadPdfForCrop(data.pages);
+                // Cambiar a la pestaña de recorte manual
+                document.querySelector('.tab-btn[data-tab="tab-crop"]').click();
+                window.showNotification(`PDF cargado. Páginas: ${data.pages.length} de ${data.total}.`);
+            } else {
+                window.showNotification('Error: Editor de recorte no disponible.', true);
+            }
+        } catch (e) {
+            window.showNotification('Error: ' + e.message, true);
+        }
+    });
+
+    // ---------- LIMPIAR RESULTADOS ----------
+    if (clearAutoResultsBtn) {
+        clearAutoResultsBtn.addEventListener('click', function() {
+            if (confirm('¿Eliminar todos los resultados de la pestaña 1?')) {
+                window.clearAutoData();
+                window.showNotification('Resultados eliminados');
+            }
+        });
+    }
+
     // ---------- EXPORTAR PGN ----------
     autoExportPgnBtn.addEventListener('click', async function() {
         const fens = getFensForExport();
@@ -298,16 +348,6 @@
             window.showNotification('Error: ' + e.message, true);
         }
     });
-
-    // ---------- LIMPIAR RESULTADOS ----------
-    if (clearAutoResultsBtn) {
-        clearAutoResultsBtn.addEventListener('click', function() {
-            if (confirm('¿Eliminar todos los resultados de la pestaña 1?')) {
-                window.clearAutoData();
-                window.showNotification('Resultados eliminados');
-            }
-        });
-    }
 
     // ---------- EXPONER FUNCIONES PARA OTROS MÓDULOS ----------
     window.getAutoFens = getFensForExport;
