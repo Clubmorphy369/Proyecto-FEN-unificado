@@ -1,10 +1,10 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (REGLA FINA, NAVEGACIÓN CORREGIDA, SIN DESAJUSTES)
+// MÓDULO 2: RECORTE MANUAL (REGLA FINA, SIN PANEL DE PRECISIÓN)
 // ============================================
 (function() {
     'use strict';
 
-    // ============ ELEMENTOS DOM ============
+    // ============ ELEMENTOS DOM (solo los que usamos) ============
     const cropFileInput = document.getElementById('cropFileInput');
     const cropLoadBtn = document.getElementById('cropLoadBtn');
     const cropCounter = document.getElementById('cropCounter');
@@ -39,7 +39,7 @@
     const pdfPageCounter = document.getElementById('pdfPageCounter');
 
     // ============ ESTADO GLOBAL ============
-    let cropImages = [];
+    let cropImages = [];               // imágenes sueltas
     let cropIndex = 0;
     window.cropBoards = [];
     let cropSelected = new Set();
@@ -80,7 +80,7 @@
         return { width: rect.width, height: rect.height };
     }
 
-    // ============ CUADRÍCULA (VERDE FINO 0.5%) ============
+    // ============ CUADRÍCULA (VERDE FINO) ============
     function updateGrid() {
         if (!gridOverlay || !gridToggle) return;
         if (!gridToggle.checked) {
@@ -123,7 +123,7 @@
         box.h = snapToGrid(box.h, grid);
     }
 
-    // ============ AUTOAPLICAR SIN SOBREESCRIBIR PÁGINAS PERSONALIZADAS ============
+    // ============ AUTOAPLICAR (sin sobreescribir páginas personalizadas) ============
     function autoApplyPatternIfFirstPage() {
         if (pdfPages.length === 0 || currentPdfPage !== 0 || cropBoxes.length === 0) return;
         const currentPattern = getCropPattern();
@@ -309,9 +309,7 @@
     document.addEventListener('mouseup', function() {
         const was = isDragging || isResizing;
         isDragging = false; isResizing = false;
-        if (was && pdfPages.length > 0 && currentPdfPage === 0) {
-            autoApplyPatternIfFirstPage();
-        }
+        if (was && pdfPages.length > 0 && currentPdfPage === 0) autoApplyPatternIfFirstPage();
     });
 
     // ============ BOTONES ============
@@ -436,7 +434,7 @@
         cropImages = [];
         cropEditor.style.display = 'block';
         if (pdfControls) pdfControls.style.display = 'flex';
-        cropSaveBtn.style.display = 'none';
+        cropSaveBtn.style.display = 'none';   // ocultar en modo PDF
         loadPdfPage(0);
     };
 
@@ -453,7 +451,7 @@
         }
     }
 
-    // ============ NAVEGACIÓN PDF ============
+    // ============ NAVEGACIÓN PDF (GUARDAR ANTES DE CAMBIAR) ============
     if (pdfPrevPageBtn) pdfPrevPageBtn.addEventListener('click', () => {
         saveCurrentPagePattern();
         if (currentPdfPage > 0) loadPdfPage(currentPdfPage - 1);
@@ -503,7 +501,7 @@
         if (window.updatePdfPreview) window.updatePdfPreview();
     }
 
-    // Eventos de galería
+    // Eventos de galería (sin cambios)
     cropSelectAll.addEventListener('click', () => { for (let i=0; i<window.cropBoards.length; i++) cropSelected.add(i); renderCropGallery(); });
     cropDeselectAll.addEventListener('click', () => { cropSelected.clear(); renderCropGallery(); });
     cropBatchWhite.addEventListener('click', () => { for (let i=0; i<window.cropBoards.length; i++) { if (cropSelected.has(i)) window.cropBoards[i].turno='white'; else window.cropBoards[i].turno='black'; } renderCropGallery(); });
