@@ -1,5 +1,5 @@
 // ============================================
-// MÓDULO 2: RECORTE MANUAL (REGLA FINA 5%, SOPORTE PDF EN PROCESAR TODAS)
+// MÓDULO 2: RECORTE MANUAL (REGLA AL 0.5%, SOPORTE PDF)
 // ============================================
 (function() {
     'use strict';
@@ -86,7 +86,7 @@
         return { width: rect.width, height: rect.height };
     }
 
-    // ============ CUADRÍCULA (REGLA VERDE FINA AL 5%) ============
+    // ============ CUADRÍCULA (REGLA VERDE FINA AL 0.5%) ============
     function updateGrid() {
         if (!gridOverlay || !gridToggle) return;
         const visible = gridToggle.checked;
@@ -102,26 +102,26 @@
         gridOverlay.style.width = size.width + 'px';
         gridOverlay.style.height = size.height + 'px';
 
-        // Líneas cada 5% del ancho/alto, verde lima brillante
+        // Líneas cada 0.5% del ancho/alto, verde lima brillante
         gridOverlay.style.backgroundImage = `
             linear-gradient(to right, rgba(0, 255, 0, 0.9) 1px, transparent 1px),
             linear-gradient(to bottom, rgba(0, 255, 0, 0.9) 1px, transparent 1px)
         `;
-        gridOverlay.style.backgroundSize = '5% 5%';   // ← antes era 10%, ahora más pequeño
+        gridOverlay.style.backgroundSize = '0.5% 0.5%';   // ← mucho más fino
         gridOverlay.style.backgroundPosition = '0 0';
         gridOverlay.style.border = '2px solid rgba(0,255,0,0.7)';
         gridOverlay.style.backgroundColor = 'transparent';
         gridOverlay.style.boxShadow = 'none';
     }
 
-    // ============ SNAP A CUADRÍCULA (tamaño de celda también al 5%) ============
+    // ============ SNAP A CUADRÍCULA (tamaño de celda también al 0.5%) ============
     function snapToGrid(value, gridSize) {
         return Math.round(value / gridSize) * gridSize;
     }
 
     function getGridSize() {
-        // Celda = 5% del lado menor de la imagen
-        return Math.round(Math.min(cropOriginalWidth, cropOriginalHeight) * 0.05);
+        // Celda = 0.5% del lado menor de la imagen
+        return Math.round(Math.min(cropOriginalWidth, cropOriginalHeight) * 0.005);
     }
 
     function applySnapToBox(box) {
@@ -171,7 +171,7 @@
             w = lastBox.w;
             h = lastBox.h;
         } else {
-            // Por defecto: celda 2x3 con margen (basado en cuadrícula 5%? Mejor mantener margen fijo)
+            // Por defecto: celda 2x3 con margen estándar
             const cols = 2, rows = 3;
             const cellW = Math.floor(cropOriginalWidth / cols);
             const cellH = Math.floor(cropOriginalHeight / rows);
@@ -375,8 +375,7 @@
         if (!files.length) { window.showNotification('Selecciona imágenes.', true); return; }
         cropImages = Array.from(files);
         cropIndex = 0;
-        // Resetear PDF por si acaso
-        pdfPages = [];
+        pdfPages = [];  // limpiamos cualquier PDF previo
         pagePatterns = {};
         cropEditor.style.display = 'block';
         clearCropBoxes();
@@ -442,7 +441,7 @@
                             addCropBox(c * cellW + margin, r * cellH + margin, cellW - 2*margin, cellH - 2*margin);
                         }
                     }
-                    if (pageIndex === 0) autoApplyPatternIfFirstPage();  // solo si es la 1ª
+                    if (pageIndex === 0) autoApplyPatternIfFirstPage();
                 }
                 if (pdfPageCounter) pdfPageCounter.textContent = `Página ${pageIndex+1} de ${pdfPages.length}`;
                 if (pdfPrevPageBtn) pdfPrevPageBtn.disabled = pageIndex === 0;
@@ -532,44 +531,38 @@
 
     // ============ PROCESAR TODAS LAS IMÁGENES (AHORA SOPORTA PDF) ============
     processAllBtn.addEventListener('click', function() {
-        // Si hay PDF cargado, extraemos todos los diagramas de todas las páginas
+        // ----- CASO PDF -----
         if (pdfPages.length > 0) {
             if (cropBoxes.length === 0) {
-                window.showNotification('Ajusta los recuadros primero.', true);
+                window.showNotification('No hay recuadros definidos. Ajusta al menos uno.', true);
                 return;
             }
-            // Guardar el patrón actual antes de procesar
+            // Asegurar que el patrón actual está guardado
             if (cropBoxes.length > 0) {
                 pagePatterns[currentPdfPage] = getCropPattern();
             }
-            let totalBoards = 0;
-            let processedPages = 0;
 
-            // Procesar cada página
-            for (let pageIdx = 0; pageIdx < pdfPages.length; pageIdx++) {
-                // Cargar imagen de la página (base64) en un objeto Image
+            let totalBoards = 0;
+            let pagesProcessed = 0;
+
+            for (let i = 0; i < pdfPages.length; i++) {
                 const pageImg = new Image();
-                pageImg.src = pdfPages[pageIdx];
-                // Para evitar problemas de carga asíncrona, usamos una función con promesas o onload anidado
+                pageImg.src = pdfPages[i];
                 pageImg.onload = (function(idx) {
                     return function() {
-                        // Obtener patrón para esta página (si no existe, usar el de la página actual o cropBoxes)
-                        let pattern = pagePatterns[idx];
+                        const pattern = pagePatterns[idx] || (idx === 0 ? getCropPattern() : null);
                         if (!pattern || pattern.length === 0) {
-                            // Si es la primera página y no tiene patrón, usamos los cropBoxes actuales
-                            if (idx === 0 && cropBoxes.length > 0) {
-                                pattern = getCropPattern();
-                            } else {
-                                // Si no hay patrón, no podemos recortar, saltar
-                                processedPages++;
-                                if (processedPages === pdfPages.length) {
+                            pagesProcessed++;
+                            if (pagesProcessed === pdfPages.length) {
+                                if (totalBoards === 0) {
+                                    window.showNotification('No se pudo extraer ningún tablero. Verifica los recuadros.', true);
+                                } else {
                                     window.showNotification(`Se añadieron ${totalBoards} tableros a la galería.`);
                                     renderCropGallery();
                                 }
-                                return;
                             }
+                            return;
                         }
-                        // Para cada recuadro del patrón, extraer el sub‑rectángulo
                         for (const box of pattern) {
                             const canvas = document.createElement('canvas');
                             canvas.width = box.w;
@@ -580,20 +573,20 @@
                             window.cropBoards.push({ dataUrl, turno: null });
                             totalBoards++;
                         }
-                        processedPages++;
-                        if (processedPages === pdfPages.length) {
+                        pagesProcessed++;
+                        if (pagesProcessed === pdfPages.length) {
                             window.showNotification(`Se añadieron ${totalBoards} tableros a la galería.`);
                             renderCropGallery();
                         }
                     };
-                })(pageIdx);
+                })(i);
             }
             return;
         }
 
-        // Si no hay PDF, comportamiento original para imágenes sueltas
+        // ----- CASO IMÁGENES SUELTAS -----
         if (cropImages.length === 0 || cropBoxes.length === 0) {
-            window.showNotification('Carga imágenes sueltas y ajusta recuadros, o usa un PDF con el botón "Configurar recortes".', true);
+            window.showNotification('Carga imágenes sueltas o usa un PDF con "Configurar recortes".', true);
             return;
         }
 
