@@ -186,7 +186,7 @@
         for (const f of files) formData.append('files', f);
         formData.append('pages', autoPages.value);
 
-        // ✨ MEJORA: Incluir patrones de recorte si existen (desde el editor de PDF)
+        // Incluir patrones de recorte si existen
         if (window.getPdfPatterns && typeof window.getPdfPatterns === 'function') {
             const patterns = window.getPdfPatterns();
             if (patterns && Object.keys(patterns).length > 0) {
