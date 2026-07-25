@@ -565,24 +565,35 @@ def extract_pdf_pages():
         if not selected_pages:
             selected_pages = [1]
 
-        images = convert_from_bytes(file_bytes, dpi=150)
-        total_pages = len(images)
-        valid_pages = [p for p in selected_pages if 1 <= p <= total_pages]
-        if not valid_pages:
-            return jsonify({'error': 'Páginas no válidas'}), 400
+        # Limitar a 5 páginas por seguridad
+        if len(selected_pages) > 5:
+            selected_pages = selected_pages[:5]
 
-        pages_b64 = []
-        for p in valid_pages:
-            img = images[p-1]
-            buffer = io.BytesIO()
-            img.save(buffer, format='JPEG', quality=80)
-            b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
-            pages_b64.append(f'data:image/jpeg;base64,{b64}')
+        print(f"[INFO] Extrayendo páginas {selected_pages} del PDF")
 
-        return jsonify({'success': True, 'pages': pages_b64, 'total': total_pages})
+        # 🔥 CONVERTIR SOLO LAS PÁGINAS SOLICITADAS (más eficiente)
+        images = []
+        for page_num in selected_pages:
+            print(f"[INFO] Convirtiendo página {page_num}...")
+            try:
+                img = convert_from_bytes(file_bytes, dpi=100, first_page=page_num, last_page=page_num)[0]
+                buffer = io.BytesIO()
+                img.save(buffer, format='JPEG', quality=70)
+                b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                images.append(f'data:image/jpeg;base64,{b64}')
+                print(f"[INFO] Página {page_num} convertida correctamente")
+            except Exception as e:
+                print(f"[ERROR] Error al convertir página {page_num}: {e}")
+                return jsonify({'error': f'Error en página {page_num}: {str(e)[:80]}'}), 500
+
+        return jsonify({'success': True, 'pages': images, 'total': len(images)})
+
+    except MemoryError:
+        print("[ERROR] Memoria insuficiente al procesar el PDF")
+        return jsonify({'error': 'El PDF es demasiado grande. Intenta con menos páginas o reduce la resolución.'}), 413
     except Exception as e:
         print(f"[ERROR] extract_pdf_pages: {traceback.format_exc()}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'Error interno: {str(e)[:100]}'}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
